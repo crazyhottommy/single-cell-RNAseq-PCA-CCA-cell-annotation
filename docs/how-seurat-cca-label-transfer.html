@@ -1,0 +1,1392 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+<meta charset="utf-8" />
+<meta name="generator" content="pandoc" />
+<meta http-equiv="X-UA-Compatible" content="IE=EDGE" />
+
+
+
+<meta name="date" content="2025-04-21" />
+
+<title>How CCA alignment and cell label transfer work in Seurat</title>
+
+<script src="site_libs/header-attrs-2.27/header-attrs.js"></script>
+<script src="site_libs/jquery-3.6.0/jquery-3.6.0.min.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="site_libs/bootstrap-3.3.5/css/cosmo.min.css" rel="stylesheet" />
+<script src="site_libs/bootstrap-3.3.5/js/bootstrap.min.js"></script>
+<script src="site_libs/bootstrap-3.3.5/shim/html5shiv.min.js"></script>
+<script src="site_libs/bootstrap-3.3.5/shim/respond.min.js"></script>
+<style>h1 {font-size: 34px;}
+       h1.title {font-size: 38px;}
+       h2 {font-size: 30px;}
+       h3 {font-size: 24px;}
+       h4 {font-size: 18px;}
+       h5 {font-size: 16px;}
+       h6 {font-size: 12px;}
+       code {color: inherit; background-color: rgba(0, 0, 0, 0.04);}
+       pre:not([class]) { background-color: white }</style>
+<script src="site_libs/jqueryui-1.13.2/jquery-ui.min.js"></script>
+<link href="site_libs/tocify-1.9.1/jquery.tocify.css" rel="stylesheet" />
+<script src="site_libs/tocify-1.9.1/jquery.tocify.js"></script>
+<script src="site_libs/navigation-1.1/tabsets.js"></script>
+<link href="site_libs/highlightjs-9.12.0/textmate.css" rel="stylesheet" />
+<script src="site_libs/highlightjs-9.12.0/highlight.js"></script>
+
+<link rel="icon" href="https://github.com/workflowr/workflowr-assets/raw/main/img/reproducible.png">
+<!-- Add a small amount of space between sections. -->
+<style type="text/css">
+div.section {
+  padding-top: 12px;
+}
+</style>
+
+
+
+<style type="text/css">
+  code{white-space: pre-wrap;}
+  span.smallcaps{font-variant: small-caps;}
+  span.underline{text-decoration: underline;}
+  div.column{display: inline-block; vertical-align: top; width: 50%;}
+  div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+  ul.task-list{list-style: none;}
+    </style>
+
+<style type="text/css">code{white-space: pre;}</style>
+<script type="text/javascript">
+if (window.hljs) {
+  hljs.configure({languages: []});
+  hljs.initHighlightingOnLoad();
+  if (document.readyState && document.readyState === "complete") {
+    window.setTimeout(function() { hljs.initHighlighting(); }, 0);
+  }
+}
+</script>
+
+
+
+
+
+
+
+
+
+<style type = "text/css">
+.main-container {
+  max-width: 940px;
+  margin-left: auto;
+  margin-right: auto;
+}
+img {
+  max-width:100%;
+}
+.tabbed-pane {
+  padding-top: 12px;
+}
+.html-widget {
+  margin-bottom: 20px;
+}
+button.code-folding-btn:focus {
+  outline: none;
+}
+summary {
+  display: list-item;
+}
+details > summary > p:only-child {
+  display: inline;
+}
+pre code {
+  padding: 0;
+}
+</style>
+
+
+<style type="text/css">
+.dropdown-submenu {
+  position: relative;
+}
+.dropdown-submenu>.dropdown-menu {
+  top: 0;
+  left: 100%;
+  margin-top: -6px;
+  margin-left: -1px;
+  border-radius: 0 6px 6px 6px;
+}
+.dropdown-submenu:hover>.dropdown-menu {
+  display: block;
+}
+.dropdown-submenu>a:after {
+  display: block;
+  content: " ";
+  float: right;
+  width: 0;
+  height: 0;
+  border-color: transparent;
+  border-style: solid;
+  border-width: 5px 0 5px 5px;
+  border-left-color: #cccccc;
+  margin-top: 5px;
+  margin-right: -10px;
+}
+.dropdown-submenu:hover>a:after {
+  border-left-color: #adb5bd;
+}
+.dropdown-submenu.pull-left {
+  float: none;
+}
+.dropdown-submenu.pull-left>.dropdown-menu {
+  left: -100%;
+  margin-left: 10px;
+  border-radius: 6px 0 6px 6px;
+}
+</style>
+
+<script type="text/javascript">
+// manage active state of menu based on current page
+$(document).ready(function () {
+  // active menu anchor
+  href = window.location.pathname
+  href = href.substr(href.lastIndexOf('/') + 1)
+  if (href === "")
+    href = "index.html";
+  var menuAnchor = $('a[href="' + href + '"]');
+
+  // mark the anchor link active (and if it's in a dropdown, also mark that active)
+  var dropdown = menuAnchor.closest('li.dropdown');
+  if (window.bootstrap) { // Bootstrap 4+
+    menuAnchor.addClass('active');
+    dropdown.find('> .dropdown-toggle').addClass('active');
+  } else { // Bootstrap 3
+    menuAnchor.parent().addClass('active');
+    dropdown.addClass('active');
+  }
+
+  // Navbar adjustments
+  var navHeight = $(".navbar").first().height() + 15;
+  var style = document.createElement('style');
+  var pt = "padding-top: " + navHeight + "px; ";
+  var mt = "margin-top: -" + navHeight + "px; ";
+  var css = "";
+  // offset scroll position for anchor links (for fixed navbar)
+  for (var i = 1; i <= 6; i++) {
+    css += ".section h" + i + "{ " + pt + mt + "}\n";
+  }
+  style.innerHTML = "body {" + pt + "padding-bottom: 40px; }\n" + css;
+  document.head.appendChild(style);
+});
+</script>
+
+<!-- tabsets -->
+
+<style type="text/css">
+.tabset-dropdown > .nav-tabs {
+  display: inline-table;
+  max-height: 500px;
+  min-height: 44px;
+  overflow-y: auto;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.tabset-dropdown > .nav-tabs > li.active:before, .tabset-dropdown > .nav-tabs.nav-tabs-open:before {
+  content: "\e259";
+  font-family: 'Glyphicons Halflings';
+  display: inline-block;
+  padding: 10px;
+  border-right: 1px solid #ddd;
+}
+
+.tabset-dropdown > .nav-tabs.nav-tabs-open > li.active:before {
+  content: "\e258";
+  font-family: 'Glyphicons Halflings';
+  border: none;
+}
+
+.tabset-dropdown > .nav-tabs > li.active {
+  display: block;
+}
+
+.tabset-dropdown > .nav-tabs > li > a,
+.tabset-dropdown > .nav-tabs > li > a:focus,
+.tabset-dropdown > .nav-tabs > li > a:hover {
+  border: none;
+  display: inline-block;
+  border-radius: 4px;
+  background-color: transparent;
+}
+
+.tabset-dropdown > .nav-tabs.nav-tabs-open > li {
+  display: block;
+  float: none;
+}
+
+.tabset-dropdown > .nav-tabs > li {
+  display: none;
+}
+</style>
+
+<!-- code folding -->
+
+
+
+<style type="text/css">
+
+#TOC {
+  margin: 25px 0px 20px 0px;
+}
+@media (max-width: 768px) {
+#TOC {
+  position: relative;
+  width: 100%;
+}
+}
+
+@media print {
+.toc-content {
+  /* see https://github.com/w3c/csswg-drafts/issues/4434 */
+  float: right;
+}
+}
+
+.toc-content {
+  padding-left: 30px;
+  padding-right: 40px;
+}
+
+div.main-container {
+  max-width: 1200px;
+}
+
+div.tocify {
+  width: 20%;
+  max-width: 260px;
+  max-height: 85%;
+}
+
+@media (min-width: 768px) and (max-width: 991px) {
+  div.tocify {
+    width: 25%;
+  }
+}
+
+@media (max-width: 767px) {
+  div.tocify {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+.tocify ul, .tocify li {
+  line-height: 20px;
+}
+
+.tocify-subheader .tocify-item {
+  font-size: 0.90em;
+}
+
+.tocify .list-group-item {
+  border-radius: 0px;
+}
+
+
+</style>
+
+
+
+</head>
+
+<body>
+
+
+<div class="container-fluid main-container">
+
+
+<!-- setup 3col/9col grid for toc_float and main content  -->
+<div class="row">
+<div class="col-xs-12 col-sm-4 col-md-3">
+<div id="TOC" class="tocify">
+</div>
+</div>
+
+<div class="toc-content col-xs-12 col-sm-8 col-md-9">
+
+
+
+
+<div class="navbar navbar-default  navbar-fixed-top" role="navigation">
+  <div class="container">
+    <div class="navbar-header">
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-bs-toggle="collapse" data-target="#navbar" data-bs-target="#navbar">
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      <a class="navbar-brand" href="index.html">single-cell-RNAseq-PCA-CCA-cell-annotation</a>
+    </div>
+    <div id="navbar" class="navbar-collapse collapse">
+      <ul class="nav navbar-nav">
+        <li>
+  <a href="index.html">Home</a>
+</li>
+<li>
+  <a href="about.html">About</a>
+</li>
+<li>
+  <a href="license.html">License</a>
+</li>
+      </ul>
+      <ul class="nav navbar-nav navbar-right">
+        
+      </ul>
+    </div><!--/.nav-collapse -->
+  </div><!--/.container -->
+</div><!--/.navbar -->
+
+<div id="header">
+
+
+
+<h1 class="title toc-ignore">How CCA alignment and cell label transfer
+work in Seurat</h1>
+<h4 class="date">2025-04-21</h4>
+
+</div>
+
+
+<p>
+<button type="button" class="btn btn-default btn-workflowr btn-workflowr-report" data-toggle="collapse" data-target="#workflowr-report">
+<span class="glyphicon glyphicon-list" aria-hidden="true"></span>
+workflowr <span class="glyphicon glyphicon-exclamation-sign text-danger"
+aria-hidden="true"></span>
+</button>
+</p>
+<div id="workflowr-report" class="collapse">
+<ul class="nav nav-tabs">
+<li class="active">
+<a data-toggle="tab" href="#summary">Summary</a>
+</li>
+<li>
+<a data-toggle="tab" href="#checks"> Checks <span
+class="glyphicon glyphicon-exclamation-sign text-danger"
+aria-hidden="true"></span> </a>
+</li>
+<li>
+<a data-toggle="tab" href="#versions">Past versions</a>
+</li>
+</ul>
+<div class="tab-content">
+<div id="summary" class="tab-pane fade in active">
+<p>
+<strong>Last updated:</strong> 2025-04-21
+</p>
+<p>
+<strong>Checks:</strong> <span
+class="glyphicon glyphicon-ok text-success" aria-hidden="true"></span> 6
+<span class="glyphicon glyphicon-exclamation-sign text-danger"
+aria-hidden="true"></span> 1
+</p>
+<p>
+<strong>Knit directory:</strong>
+<code>single-cell-RNAseq-PCA-CCA-cell-annotation/</code> <span
+class="glyphicon glyphicon-question-sign" aria-hidden="true"
+title="This is the local directory in which the code in this file was executed.">
+</span>
+</p>
+<p>
+This reproducible <a href="https://rmarkdown.rstudio.com">R Markdown</a>
+analysis was created with <a
+  href="https://github.com/workflowr/workflowr">workflowr</a> (version
+1.7.1). The <em>Checks</em> tab describes the reproducibility checks
+that were applied when the results were created. The <em>Past
+versions</em> tab lists the development history.
+</p>
+<hr>
+</div>
+<div id="checks" class="tab-pane fade">
+<div id="workflowr-checks" class="panel-group">
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongRMarkdownfilestronguncommittedchanges">
+<span class="glyphicon glyphicon-exclamation-sign text-danger"
+aria-hidden="true"></span> <strong>R Markdown file:</strong> uncommitted
+changes </a>
+</p>
+</div>
+<div id="strongRMarkdownfilestronguncommittedchanges"
+class="panel-collapse collapse">
+<div class="panel-body">
+<p>The R Markdown is untracked by Git. To know which version of the R
+Markdown file created these results, you’ll want to first commit it to
+the Git repo. If you’re still working on the analysis, you can ignore
+this warning. When you’re finished, you can run
+<code>wflow_publish</code> to commit the R Markdown file and build the
+HTML.</p>
+</div>
+</div>
+</div>
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongEnvironmentstrongempty">
+<span class="glyphicon glyphicon-ok text-success"
+aria-hidden="true"></span> <strong>Environment:</strong> empty </a>
+</p>
+</div>
+<div id="strongEnvironmentstrongempty" class="panel-collapse collapse">
+<div class="panel-body">
+<p>Great job! The global environment was empty. Objects defined in the
+global environment can affect the analysis in your R Markdown file in
+unknown ways. For reproduciblity it’s best to always run the code in an
+empty environment.</p>
+</div>
+</div>
+</div>
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongSeedstrongcodesetseed20250421code">
+<span class="glyphicon glyphicon-ok text-success"
+aria-hidden="true"></span> <strong>Seed:</strong>
+<code>set.seed(20250421)</code> </a>
+</p>
+</div>
+<div id="strongSeedstrongcodesetseed20250421code"
+class="panel-collapse collapse">
+<div class="panel-body">
+<p>The command <code>set.seed(20250421)</code> was run prior to running
+the code in the R Markdown file. Setting a seed ensures that any results
+that rely on randomness, e.g. subsampling or permutations, are
+reproducible.</p>
+</div>
+</div>
+</div>
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongSessioninformationstrongrecorded">
+<span class="glyphicon glyphicon-ok text-success"
+aria-hidden="true"></span> <strong>Session information:</strong>
+recorded </a>
+</p>
+</div>
+<div id="strongSessioninformationstrongrecorded"
+class="panel-collapse collapse">
+<div class="panel-body">
+<p>Great job! Recording the operating system, R version, and package
+versions is critical for reproducibility.</p>
+</div>
+</div>
+</div>
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongCachestrongnone">
+<span class="glyphicon glyphicon-ok text-success"
+aria-hidden="true"></span> <strong>Cache:</strong> none </a>
+</p>
+</div>
+<div id="strongCachestrongnone" class="panel-collapse collapse">
+<div class="panel-body">
+<p>Nice! There were no cached chunks for this analysis, so you can be
+confident that you successfully produced the results during this
+run.</p>
+</div>
+</div>
+</div>
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongFilepathsstrongrelative">
+<span class="glyphicon glyphicon-ok text-success"
+aria-hidden="true"></span> <strong>File paths:</strong> relative </a>
+</p>
+</div>
+<div id="strongFilepathsstrongrelative" class="panel-collapse collapse">
+<div class="panel-body">
+<p>Great job! Using relative paths to the files within your workflowr
+project makes it easier to run your code on other machines.</p>
+</div>
+</div>
+</div>
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongRepositoryversionstrongahrefhttpsgithubcomcrazyhottommysinglecellRNAseqPCACCAcellannotationtree2facd4835b9b926dcdb1089c188272ffb05d49fatargetblank2facd48a">
+<span class="glyphicon glyphicon-ok text-success"
+aria-hidden="true"></span> <strong>Repository version:</strong>
+<a href="https://github.com/crazyhottommy/single-cell-RNAseq-PCA-CCA-cell-annotation/tree/2facd4835b9b926dcdb1089c188272ffb05d49fa" target="_blank">2facd48</a>
+</a>
+</p>
+</div>
+<div
+id="strongRepositoryversionstrongahrefhttpsgithubcomcrazyhottommysinglecellRNAseqPCACCAcellannotationtree2facd4835b9b926dcdb1089c188272ffb05d49fatargetblank2facd48a"
+class="panel-collapse collapse">
+<div class="panel-body">
+<p>
+Great! You are using Git for version control. Tracking code development
+and connecting the code version to the results is critical for
+reproducibility.
+</p>
+<p>
+The results in this page were generated with repository version
+<a href="https://github.com/crazyhottommy/single-cell-RNAseq-PCA-CCA-cell-annotation/tree/2facd4835b9b926dcdb1089c188272ffb05d49fa" target="_blank">2facd48</a>.
+See the <em>Past versions</em> tab to see a history of the changes made
+to the R Markdown and HTML files.
+</p>
+<p>
+Note that you need to be careful to ensure that all relevant files for
+the analysis have been committed to Git prior to generating the results
+(you can use <code>wflow_publish</code> or
+<code>wflow_git_commit</code>). workflowr only checks the R Markdown
+file, but you know if there are other scripts or data files that it
+depends on. Below is the status of the Git repository when the results
+were generated:
+</p>
+<pre><code>
+Ignored files:
+    Ignored:    .Rhistory
+    Ignored:    .Rproj.user/
+
+Untracked files:
+    Untracked:  analysis/how-seurat-cca-label-transfer.Rmd
+    Untracked:  analysis/how-seurat-pca-label-transfer.Rmd
+
+Unstaged changes:
+    Modified:   single-cell-RNAseq-PCA-CCA-cell-annotation.Rproj
+
+</code></pre>
+<p>
+Note that any generated files, e.g. HTML, png, CSS, etc., are not
+included in this status report because it is ok for generated content to
+have uncommitted changes.
+</p>
+</div>
+</div>
+</div>
+</div>
+<hr>
+</div>
+<div id="versions" class="tab-pane fade">
+<p>
+There are no past versions. Publish this analysis with
+<code>wflow_publish()</code> to start tracking its development.
+</p>
+<hr>
+</div>
+</div>
+</div>
+<p><strong>To not miss a post like this, sign up for my <a
+href="https://divingintogeneticsandgenomics.ck.page/profile">newsletter</a>
+to learn computational biology and bioinformatics.</strong></p>
+<div id="understand-cca" class="section level3">
+<h3>Understand CCA</h3>
+<p>Following my last blog post on <a
+href="https://divingintogeneticsandgenomics.com/post/pca-projection/">PCA
+projection and cell label transfer</a>, we are going to talk about
+<code>CCA</code>.</p>
+<p>In single-cell RNA-seq data integration using
+<code>Canonical Correlation Analysis (CCA)</code>, we typically align
+two matrices representing different datasets, where both datasets have
+the same set of genes but different numbers of cells. CCA is used to
+identify correlated structures across the two datasets and align them in
+a common space.</p>
+<p>Let’s denote the two datasets as:</p>
+<p><span class="math inline">\(X\)</span>: a matrix with dimensions
+<span class="math inline">\(p \times n1\)</span> (where <span
+class="math inline">\(p\)</span> is the number of genes and <span
+class="math inline">\(n\)</span> is the number of cells in dataset 1,
+e.g., PBMC 3k)</p>
+<p>Y: a matrix with dimensions <span class="math inline">\(p \times
+n2\)</span> (where <span class="math inline">\(p\)</span> is the number
+of genes and <span class="math inline">\(n\)</span> is the number of
+cells in dataset 2, e.g., PBMC 10k)</p>
+<p>In this case, the number of genes (rows) is the same in both
+matrices, but the number of cells (columns) is different.</p>
+<p>The goal of <code>CCA</code> here is to find linear combinations of
+the genes in both datasets that produce correlated cell embeddings in a
+lower-dimensional space. Essentially, we aim to align the two datasets
+by identifying the correlated patterns in gene expression that are
+shared between the two sets of cells.</p>
+</div>
+<div id="how-cca-works" class="section level3">
+<h3>How CCA Works</h3>
+<p>Given the two datasets <span class="math inline">\(X\)</span> and
+<span class="math inline">\(Y\)</span>, CCA finds the linear
+combinations of the gene expression profiles that are maximally
+correlated. This means that for each cell in <span
+class="math inline">\(X\)</span> and each cell in <span
+class="math inline">\(Y\)</span> we find directions in the gene
+expression space that maximize the correlation between the two
+datasets.</p>
+</div>
+<div id="formulas-for-cca" class="section level3">
+<h3>Formulas for CCA</h3>
+<p>Input Data:</p>
+<p>a matrix <span class="math inline">\(X \in \mathbb{R}^{p \times
+n_1}\)</span> is the matrix of gene expression from the first dataset
+(3k cells), and <span class="math inline">\(Y \in \mathbb{R}^{p \times
+n_2}\)</span> is the matrix of gene expression from the second dataset
+(10k cells).</p>
+<p><strong>Canonical Variates</strong>: We aim to find vectors <span
+class="math inline">\(a \in \mathbb{R}^p\)</span> and <span
+class="math inline">\(b \in \mathbb{R}^p\)</span> such that:</p>
+<p><span class="math display">\[
+u = X^T a \quad (\text{canonical variate for cells in } X)
+\]</span></p>
+<p><span class="math display">\[
+v = Y^T b \quad (\text{canonical variate for cells in } Y)
+\]</span></p>
+<p>Where <span class="math inline">\(u\)</span> and <span
+class="math inline">\(v\)</span> are the canonical variates, and the
+goal is to maximize the correlation:</p>
+<p><span class="math display">\[
+\text{corr}(u, v) = \frac{\text{cov}(u, v)}{\sqrt{\text{var}(u)} \cdot
+\sqrt{\text{var}(v)}}
+\]</span></p>
+<p><strong>Covariance Matrices</strong>: <span class="math display">\[
+\Sigma_{XX} = \frac{1}{n_1 - 1} XX^T \quad \text{(covariance matrix of
+dataset } X)
+\]</span></p>
+<p><span class="math display">\[
+\Sigma_{YY} = \frac{1}{n_2 - 1} YY^T \quad \text{(covariance matrix of
+dataset } Y)
+\]</span></p>
+<p><span class="math display">\[
+\Sigma_{XY} = \frac{1}{\min(n_1, n_2) - 1} X^TY \quad
+\text{(cross-covariance matrix between } X \text{ and } Y)
+\]</span></p>
+<p><strong>Generalized Eigenvalue Problem (GEP)</strong>:</p>
+<p>To find the canonical weights <span class="math inline">\(a\)</span>
+and <span class="math inline">\(b\)</span>, we solve the generalized
+eigenvalue problem:</p>
+<p><span class="math display">\[
+\Sigma_{XX}^{-1} \Sigma_{XY} \Sigma_{YY}^{-1} \Sigma_{YX} a = \lambda a
+\]</span></p>
+<p>Similarly for <span class="math inline">\(b\)</span>:</p>
+<p><span class="math display">\[
+\Sigma_{YY}^{-1} \Sigma_{YX} \Sigma_{XX}^{-1} \Sigma_{XY} b = \lambda b
+\]</span></p>
+<p>The eigenvalue <span class="math inline">\(\lambda\)</span>
+corresponds to the canonical correlation. <span
+class="math inline">\(a\)</span> is the canonical weight vector for
+dataset <span class="math inline">\(X\)</span> <span
+class="math inline">\(b\)</span> is the canonical weight vector for
+dataset <span class="math inline">\(Y\)</span></p>
+<p>Solving the eigenvalue problem involves finding the eigenvalues and
+eigenvectors that maximize the correlation between the datasets, but it
+effectively solves the same problem as the <code>SVD</code> for the
+covariance matrix <span class="math inline">\(\Sigma XY\)</span>. One
+can demonstrate that mathematically using matrix calculation. I am not a
+math person, I will leave it to you to do the proof :). Again, I really
+wish I learned linear algebra better.</p>
+<p><strong>Note</strong> watch <a
+href="https://www.3blue1brown.com/lessons/eigenvalues">this for
+eigenvalues and eigenvectors</a> from 3blue1brown.</p>
+<p><strong>Note</strong> read this blog post <a
+href="https://xinmingtu.cn/blog/2022/CCA_dual_PCA/"
+class="uri">https://xinmingtu.cn/blog/2022/CCA_dual_PCA/</a> by Xinming
+Tu (with nice visuals!) to understand the relationship between CCA and
+PCA in a more mathematical way.</p>
+</div>
+<div id="how-svd-is-used-and-how-it-relates-to-the-gep."
+class="section level3">
+<h3>How SVD is used and how it relates to the GEP.</h3>
+<p><strong>Perform SVD on the Cross-Covariance Matrix</strong>:</p>
+<p>The SVD of the cross-covariance matrix <span
+class="math inline">\(\Sigma_{XY}\)</span> can be expressed as:</p>
+<p><span class="math display">\[
+   \Sigma_{XY} = U D V^T
+   \]</span></p>
+<p>where:<br />
+- <span class="math inline">\(U\)</span> is a matrix of left singular
+vectors (canonical directions for dataset <span
+class="math inline">\(X\)</span>,<br />
+- <span class="math inline">\(V\)</span> is a matrix of right singular
+vectors (canonical directions for dataset <span
+class="math inline">\(Y\)</span>,<br />
+- <span class="math inline">\(D\)</span> is a diagonal matrix containing
+singular values, which represent the strength of correlations.</p>
+<p>The matrix <span class="math inline">\(U\)</span> contains the left
+singular vectors of <span class="math inline">\(\Sigma_{XY}\)</span>,
+which correspond to the canonical directions for dataset <span
+class="math inline">\(X\)</span>. These directions are the axes along
+which the data in <span class="math inline">\(X\)</span> is maximally
+correlated with the data in <span class="math inline">\(Y\)</span>, as
+measured by the singular values in <span
+class="math inline">\(D\)</span>. Thus, <span
+class="math inline">\(U\)</span> represents the canonical variates
+(directions) for <span class="math inline">\(X\)</span>, just as <span
+class="math inline">\(V\)</span> represents the canonical variates for
+<span class="math inline">\(Y\)</span>.</p>
+</div>
+<div id="lets-see-an-example-in-action" class="section level3">
+<h3>Let’s see an example in action</h3>
+<pre class="r"><code>library(Seurat)
+library(Matrix)
+library(irlba)  # For PCA
+library(dplyr)
+# devtools::install_github(&#39;satijalab/seurat-data&#39;)
+library(SeuratData)
+#AvailableData()
+#InstallData(&quot;pbmc3k&quot;)</code></pre>
+<p>The pbmc3k data and pbmc10k data have different number of gene names,
+let’s subset to the common genes.</p>
+<pre class="r"><code># download 10k dataset here curl -Lo pbmc_10k_v3.rds https://www.dropbox.com/s/3f3p5nxrn5b3y4y/pbmc_10k_v3.rds?dl=1 
+
+pbmc3k&lt;-UpdateSeuratObject(pbmc3k)
+pbmc10k&lt;- readRDS(&quot;~/blog_data/pbmc_10k_v3.rds&quot;)
+pbmc10k&lt;-UpdateSeuratObject(pbmc10k)
+
+pbmc3k_genes &lt;- rownames(pbmc3k)
+pbmc10k_genes &lt;- rownames(pbmc10k)
+
+# Find common genes
+common_genes &lt;- intersect(pbmc3k_genes, pbmc10k_genes)
+
+# reorder the genes to the same order
+pbmc3k &lt;- subset(pbmc3k, features = common_genes)
+pbmc10k &lt;- subset(pbmc10k, features = common_genes)</code></pre>
+<p>How the pbmc10k data look like:</p>
+<pre class="r"><code># routine processing for 3k dataset
+pbmc3k&lt;- pbmc3k %&gt;% 
+  NormalizeData(normalization.method = &quot;LogNormalize&quot;, scale.factor = 10000) %&gt;%
+  FindVariableFeatures(selection.method = &quot;vst&quot;, nfeatures = 5000) %&gt;%
+  ScaleData() %&gt;%
+  RunPCA(verbose = FALSE) %&gt;%
+  FindNeighbors(dims = 1:10, verbose = FALSE) %&gt;%
+  FindClusters(resolution = 0.5, verbose = FALSE) %&gt;%
+  RunUMAP(dims = 1:10, verbose = FALSE)
+
+DimPlot(pbmc10k, label = TRUE, repel = TRUE) + NoLegend()</code></pre>
+<p><img src="figure/how-seurat-cca-label-transfer.Rmd/unnamed-chunk-4-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>The pbmc3k dataset comes with annotations (the seurat_annotations
+column). In this experiment, we will pretend we do not have it and use
+the 10k pbmc data to transfer the labels. Also the pbmc10k cell labels
+are a little more granular.</p>
+<pre class="r"><code>pbmc10k &lt;- NormalizeData(pbmc10k)
+pbmc10k &lt;- FindVariableFeatures(pbmc10k, selection.method = &quot;vst&quot;, nfeatures = 5000)
+pbmc10k &lt;- ScaleData(pbmc10k)
+
+# Find common variable features, Seurat has a more complex function
+# we will take the intersection
+#variable_genes &lt;- SelectIntegrationFeatures(list(pbmc3k, pbmc10k), nfeatures = 3000)
+
+variable_genes &lt;- intersect(VariableFeatures(pbmc3k), VariableFeatures(pbmc10k))</code></pre>
+<p>Note we need to scale them by genes across the cells first.</p>
+<pre class="r"><code># Step 1: Center the datasets
+centered_pbmc3k &lt;- t(scale(t(pbmc3k@assays$RNA@data[variable_genes,]), center =TRUE, scale =TRUE))
+centered_pbmc10k &lt;- t(scale(t(pbmc10k@assays$RNA@data[variable_genes,]), center= TRUE, scale =TRUE))
+
+dim(centered_pbmc3k)</code></pre>
+<pre><code>#&gt; [1] 2376 2700</code></pre>
+<pre class="r"><code>dim(centered_pbmc10k)</code></pre>
+<pre><code>#&gt; [1] 2376 9432</code></pre>
+<p><code>SVD</code> directly computes the singular values (canonical
+correlations) and singular vectors (canonical variates) by decomposing
+<span class="math inline">\(\Sigma XY\)</span></p>
+<p>The singular value decomposition (SVD) can be mathematically related
+to solving the generalized eigenvalue problem.</p>
+<pre class="r"><code>Sigma_XY&lt;- (1 / (min(ncol(centered_pbmc3k), ncol(centered_pbmc10k)) - 1)) * t(centered_pbmc3k) %*% centered_pbmc10k
+
+dim(Sigma_XY)</code></pre>
+<pre><code>#&gt; [1] 2700 9432</code></pre>
+<pre class="r"><code># Perform SVD
+k &lt;- 20  # Number of CCA dimensions
+cca_svd &lt;- irlba::irlba(Sigma_XY, nu=k, nv=k)
+
+# Get canonical variates and correlations
+canonical_variates_3k &lt;- cca_svd$u  # PBMC3k canonical variates
+canonical_variates_10k &lt;- cca_svd$v  # PBMC10k canonical variates
+
+# cca_svd$d contains the singular values
+canonical_cors &lt;- cca_svd$d  # Canonical correlations
+
+range(canonical_cors)</code></pre>
+<pre><code>#&gt; [1]   4.70585 165.14183</code></pre>
+<pre class="r"><code># normalize it so the first CCA dimension has a correlation close to 1 
+canonical_cors&lt;- cca_svd$d / sum(cca_svd$d)
+
+barplot(canonical_cors, 
+        main=&quot;Canonical Correlations&quot;, 
+        xlab=&quot;Canonical Dimension&quot;, 
+        ylab=&quot;Correlation&quot;,
+        col=&quot;lightblue&quot;)</code></pre>
+<p><img src="figure/how-seurat-cca-label-transfer.Rmd/unnamed-chunk-7-1.png" width="672" style="display: block; margin: auto;" />
+The sum of the first few CCA dimension should have a correlation close
+to 1.</p>
+</div>
+<div id="l2-normalization-of-canonical-correlation-vectors"
+class="section level3">
+<h3>L2 Normalization of Canonical Correlation Vectors</h3>
+<p>From the Seurat V3 paper: <a
+href="https://pmc.ncbi.nlm.nih.gov/articles/PMC6687398/"
+class="uri">https://pmc.ncbi.nlm.nih.gov/articles/PMC6687398/</a></p>
+<blockquote>
+<p>While MNNs have previously been identified using L2-normalized gene
+expression, significant differences across batches can obscure the
+accurate identification of MNNs, particularly when the batch effect is
+on a similar scale to the biological differences between cell states. To
+overcome this, we first jointly reduce the dimensionality of both
+datasets using diagonalized canonical correlation analysis (CCA), then
+apply L2-normalization to the canonical correlation vectors (Figure
+1A,B). We next search for MNNs in this shared low-dimensional
+representation</p>
+</blockquote>
+<p>Purpose of L2 Normalization: After computing the canonical variates
+(the linear combinations of the original variables that maximize
+correlation), L2 normalization (also known as Euclidean normalization)
+is applied to these vectors. This process scales the vectors so that
+their lengths (norms) equal one.</p>
+<p>Mathematical Formulation: For a vector <span
+class="math inline">\(v\)</span> L2 normalization can be expressed
+as:</p>
+<p><span class="math inline">\(v_{\text{normalized}} =
+\frac{v}{\|v\|_2}\)</span></p>
+<p>where <span class="math inline">\(\|v\|_2\)</span> is the L2 norm
+(Euclidean norm) of the vector.</p>
+<p>Benefits of L2 Normalization:</p>
+<p>Stabilization: It helps to stabilize the comparison of canonical
+correlation vectors across datasets, making the downstream analysis more
+robust.</p>
+<p>Interpretable Scale: Normalized vectors provide a more interpretable
+scale for distances and similarities in the integrated dataset.</p>
+<p>Apply the L2 normalization for each cell.</p>
+<pre class="r"><code>l2_normalize &lt;- function(x) {
+  x / sqrt(rowSums(x^2))
+}
+
+# L2-normalize the canonical variates for PBMC 3k
+canonical_variates_3k&lt;- l2_normalize(canonical_variates_3k)
+
+# L2-normalize the canonical variates for PBMC 10k
+canonical_variates_10k &lt;- l2_normalize(canonical_variates_10k)
+
+# Check dimensions to make sure they remain the same
+dim(canonical_variates_3k)  # Should be 2700 by 20</code></pre>
+<pre><code>#&gt; [1] 2700   20</code></pre>
+<pre class="r"><code>dim(canonical_variates_10k)  # Should be 9432 by 20</code></pre>
+<pre><code>#&gt; [1] 9432   20</code></pre>
+</div>
+<div id="function-to-find-mutual-nearest-neighbors-mnn"
+class="section level2">
+<h2>Function to find Mutual nearest neighbors (MNN)</h2>
+<p>We will use <code>RANN</code> package to do it at a high level. We
+used <code>RcppAnnoy</code> in the last post.</p>
+<pre class="r"><code>library(RANN)
+
+# Step 1: Find Nearest Neighbors using RANN
+k &lt;- 30  # Number of neighbors to consider
+nn_result_10k &lt;- nn2(data = canonical_variates_10k, query = canonical_variates_3k, k = k)
+nn_indices_10k &lt;- nn_result_10k$nn.idx  # Indices of nearest neighbors in pbmc10k
+
+# Find the nearest neighbors in pbmc3k for pbmc10k cells
+nn_result_3k &lt;- nn2(data = canonical_variates_3k, query = canonical_variates_10k, k = k)
+nn_indices_3k &lt;- nn_result_3k$nn.idx  # Indices of nearest neighbors in pbmc3k
+
+# Step 2: Identify Mutual Nearest Neighbors
+find_mnn &lt;- function(nn_indices_10k, nn_indices_3k) {
+  mnn_list &lt;- vector(&quot;list&quot;, length = nrow(canonical_variates_3k))
+  
+  for (i in 1:nrow(canonical_variates_3k)) {
+    neighbors_10k &lt;- nn_indices_10k[i, ]  # Neighbors in pbmc10k
+    mutual_neighbors &lt;- c()
+    
+    for (neighbor in neighbors_10k) {
+      # Check if this neighbor sees the original cell as its nearest neighbor
+      if (i %in% nn_indices_3k[neighbor, ]) {
+        mutual_neighbors &lt;- c(mutual_neighbors, neighbor)
+      }
+    }
+    mnn_list[[i]] &lt;- mutual_neighbors
+  }
+  return(mnn_list)
+}
+
+# Find MNNs
+mnn_indices &lt;- find_mnn(nn_indices_10k, nn_indices_3k)</code></pre>
+<p>Label transfer for cells that have MNNs.</p>
+<pre class="r"><code># Step 3: Label Transfer with MNN
+# Assume we have labels for the PBMC10k dataset
+pbmc10k_labels &lt;- as.character(pbmc10k$celltype)
+
+# Initialize transferred labels and scores
+transferred_labels &lt;- character(length = nrow(canonical_variates_3k))
+transfer_scores &lt;- numeric(length = nrow(canonical_variates_3k))
+
+# Transfer labels with error handling
+for (i in seq_along(mnn_indices)) {
+  if (length(mnn_indices[[i]]) &gt; 0) {
+    # Get labels for the MNNs
+    labels &lt;- pbmc10k_labels[mnn_indices[[i]]]
+    
+    # Remove NAs from labels
+    labels &lt;- labels[!is.na(labels)]
+    
+    # Check if we have any valid labels left
+    if (length(labels) &gt; 0) {
+      # Assign the most common label among the MNNs
+      transferred_labels[i] &lt;- names(sort(table(labels), decreasing = TRUE))[1]
+      # Calculate transfer score as the proportion of matching labels
+      transfer_scores[i] &lt;- max(table(labels)) / length(labels)
+    } else {
+      # Assign NA or a default value if no valid labels
+      transferred_labels[i] &lt;- NA_character_  # Keep it as NA of character type
+      transfer_scores[i] &lt;- 0
+    }
+  } else {
+    # For cells without MNN, assign NA or a default label (e.g., &quot;unknown&quot;)
+    transferred_labels[i] &lt;- NA_character_
+    transfer_scores[i] &lt;- 0
+  }
+}</code></pre>
+<div id="step-4-handle-cells-without-mnn" class="section level4">
+<h4>Step 4: Handle cells without MNN</h4>
+<p>You can assign a default label or propagate labels based on other
+criteria. For example, using a knn approach or global label
+distribution. Optionally, you could implement a fallback strategy like
+the following:</p>
+<pre class="r"><code>for (i in seq_along(transferred_labels)) {
+  if (is.na(transferred_labels[i])) {
+    # Look for the nearest neighbor labels in pbmc10k
+    nearest_label_index &lt;- nn_indices_10k[i, 1]  # Get the first neighbor
+    transferred_labels[i] &lt;- pbmc10k_labels[nearest_label_index]  # Assign its label
+  }
+}
+
+# transferred_labels now contains labels transferred from pbmc10k to pbmc3k
+# transfer_scores indicates the confidence of the label transfer for each cell
+
+pbmc3k$transferred_labels&lt;- transferred_labels</code></pre>
+</div>
+<div id="compare-with-seurats-wrapper" class="section level3">
+<h3>compare with Seurat’s wrapper</h3>
+<p>the default is <code>pcaprojection</code> as what we did in my last
+blog post.</p>
+<pre class="r"><code># Step 1: Find transfer anchors
+anchors &lt;- FindTransferAnchors(
+  reference = pbmc10k,     # The reference dataset
+  query = pbmc3k,          # The query dataset
+  dims = 1:100,                # The dimensions to use for anchor finding
+  #reduction = &quot;cca&quot; # 
+)
+
+# Step 2: Transfer labels
+predictions &lt;- TransferData(
+  anchors = anchors,           # The anchors identified in the previous step
+  refdata = pbmc10k$celltype, # Assuming &#39;label&#39; is the metadata containing the true labels in seurat_10k
+  dims = 1:30                  # Dimensions to use for transferring
+)
+
+
+# Step 3: Add predictions to the query dataset
+pbmc3k &lt;- AddMetaData(pbmc3k, metadata = predictions)
+
+# predicted.id is from Seurat&#39;s wrapper function, predicted is from our naive implementation
+table(pbmc3k$transferred_labels, pbmc3k$predicted.id)</code></pre>
+<pre><code>#&gt;                         
+#&gt;                          B cell progenitor CD14+ Monocytes CD16+ Monocytes
+#&gt;   B cell progenitor                     84               0               0
+#&gt;   CD14+ Monocytes                        0             480              15
+#&gt;   CD16+ Monocytes                        0               5             131
+#&gt;   CD4 Memory                             0               0               0
+#&gt;   CD4 Naive                              0               0               0
+#&gt;   CD8 effector                           0               0               0
+#&gt;   CD8 Naive                              0               0               0
+#&gt;   Dendritic cell                         0               3               1
+#&gt;   Double negative T cell                 0               0               0
+#&gt;   NK cell                                2               0               0
+#&gt;   pDC                                    0               2               0
+#&gt;   Platelets                              0               3               0
+#&gt;   pre-B cell                            15               0               0
+#&gt;                         
+#&gt;                          CD4 Memory CD4 Naive CD8 effector CD8 Naive
+#&gt;   B cell progenitor               3         6            0         1
+#&gt;   CD14+ Monocytes                22        21            0         0
+#&gt;   CD16+ Monocytes                 0         0            0         0
+#&gt;   CD4 Memory                    445       173            4        21
+#&gt;   CD4 Naive                       4       336            0        17
+#&gt;   CD8 effector                   21         6          161         6
+#&gt;   CD8 Naive                       0        34            0        77
+#&gt;   Dendritic cell                  0         1            0         1
+#&gt;   Double negative T cell         25        12            3         2
+#&gt;   NK cell                         1         1           14         0
+#&gt;   pDC                             2         1            0         0
+#&gt;   Platelets                       0         0            2         0
+#&gt;   pre-B cell                      0         0            0         0
+#&gt;                         
+#&gt;                          Dendritic cell Double negative T cell NK cell pDC
+#&gt;   B cell progenitor                   0                      0       0   0
+#&gt;   CD14+ Monocytes                     4                      0       1   0
+#&gt;   CD16+ Monocytes                     0                      0       0   0
+#&gt;   CD4 Memory                          0                      1       2   0
+#&gt;   CD4 Naive                           0                      0       0   0
+#&gt;   CD8 effector                        0                      2       0   0
+#&gt;   CD8 Naive                           0                      0       0   0
+#&gt;   Dendritic cell                     27                      0       0   0
+#&gt;   Double negative T cell              0                     89       0   0
+#&gt;   NK cell                             0                      1     150   0
+#&gt;   pDC                                 0                      0       0   4
+#&gt;   Platelets                           0                      0       0   0
+#&gt;   pre-B cell                          0                      0       0   0
+#&gt;                         
+#&gt;                          Platelets pre-B cell
+#&gt;   B cell progenitor              0         11
+#&gt;   CD14+ Monocytes                1          0
+#&gt;   CD16+ Monocytes                0          0
+#&gt;   CD4 Memory                     0          0
+#&gt;   CD4 Naive                      0          0
+#&gt;   CD8 effector                   0          0
+#&gt;   CD8 Naive                      0          0
+#&gt;   Dendritic cell                 0          0
+#&gt;   Double negative T cell         0          0
+#&gt;   NK cell                        0          1
+#&gt;   pDC                            0          0
+#&gt;   Platelets                     12          0
+#&gt;   pre-B cell                     0        230</code></pre>
+<p>visualize in a heatmap</p>
+<pre class="r"><code>library(ComplexHeatmap)
+table(pbmc3k$transferred_labels, pbmc3k$predicted.id) %&gt;%
+        as.matrix() %&gt;%
+        scale() %&gt;%
+        Heatmap(cluster_rows = FALSE, cluster_columns= FALSE, name= &quot;scaled\ncell number&quot;)</code></pre>
+<p><img src="figure/how-seurat-cca-label-transfer.Rmd/unnamed-chunk-13-1.png" width="672" style="display: block; margin: auto;" /></p>
+</div>
+<div id="clustering-and-umap" class="section level3">
+<h3>clustering and UMAP</h3>
+<p>With the CCA embeddings, you can do clustering (k-means, hierarchical
+clustering etc) and UMAP by concatenating the cannoical variates from
+two datasets together.</p>
+<pre class="r"><code># Load required libraries for clustering and UMAP
+library(uwot)  # For UMAP
+library(cluster)  # For clustering algorithms (like k-means)
+
+# Combine canonical variates from both datasets 
+combined_variates &lt;- rbind(canonical_variates_3k, canonical_variates_10k)
+combined_variates&lt;- scale(combined_variates)
+
+# Step 1: Clustering (using k-means as an example)
+# Set the number of clusters (k)
+k &lt;- 13  # Choose the number of clusters based on your data ( I am cheating as I know 13 celltypes in the dataset)
+
+set.seed(123)
+kmeans_result &lt;- kmeans(combined_variates, centers = k)
+
+# Extract cluster labels
+cluster_labels &lt;- kmeans_result$cluster
+
+# Step 2: UMAP Calculation
+# Compute UMAP on the canonical variates
+umap_results &lt;- umap(combined_variates)
+
+# UMAP Results
+umap_data &lt;- as.data.frame(umap_results)
+
+# Add cluster labels and data source to UMAP results for visualization
+umap_data$Cluster &lt;- factor(cluster_labels)
+umap_data$dataset&lt;- c(rep(&quot;3k&quot;, nrow(canonical_variates_3k)),
+                      rep(&quot;10k&quot;, nrow(canonical_variates_10k)))
+umap_data$celltype&lt;- c(as.character(pbmc3k$transferred_labels),
+                       as.character(pbmc10k$celltype))
+
+table(umap_data$Cluster, umap_data$celltype) %&gt;%
+        as.matrix() %&gt;%
+        scale() %&gt;%
+        Heatmap(cluster_rows = FALSE, cluster_columns= FALSE, name= &quot;scaled\ncell number&quot;)</code></pre>
+<p><img src="figure/how-seurat-cca-label-transfer.Rmd/unnamed-chunk-14-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>K-means works reasonably well. It mixes CD4 naive and CD8 naive
+together; pDC and Dendritic cells together. It split CD14+ monocytes
+into two different cluster 6 and 11. One can do many times of K-means
+and use the consensus as the clusters. e.g., <a
+href="https://www.nature.com/articles/nmeth.4236">SC3: consensus
+clustering of single-cell RNA-seq data</a>.</p>
+</div>
+<div id="datasets-integration" class="section level3">
+<h3>Datasets integration</h3>
+<p>Plot UMAP</p>
+<pre class="r"><code>library(ggplot2)
+
+ggplot(umap_data, aes(x = V1, y = V2, color = dataset)) +
+  geom_point(size = 0.4) +
+  labs(title = &quot;UMAP Projection of CCA Canonical Variates&quot;,
+       x = &quot;UMAP 1&quot;,
+       y = &quot;UMAP 2&quot;) +
+  theme_minimal() +
+  scale_color_discrete(name = &quot;dataset&quot;) +
+        facet_wrap(~dataset)</code></pre>
+<p><img src="figure/how-seurat-cca-label-transfer.Rmd/unnamed-chunk-15-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>We see those two datasets are aligned super well!</p>
+<pre class="r"><code>ggplot(umap_data, aes(x = V1, y = V2, color = dataset)) +
+  geom_point(size = 0.4) +
+  labs(title = &quot;UMAP Projection of CCA Canonical Variates&quot;,
+       x = &quot;UMAP 1&quot;,
+       y = &quot;UMAP 2&quot;) +
+  theme_minimal() +
+  scale_color_discrete(name = &quot;dataset&quot;) </code></pre>
+<p><img src="figure/how-seurat-cca-label-transfer.Rmd/unnamed-chunk-16-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>Let’s color the cells with celltype:</p>
+<pre class="r"><code># use https://oompa.r-forge.r-project.org/packages/Polychrome/polychrome.html for colors
+library(Polychrome)
+
+# length(unique(umap_data$celltype)) 
+# total 13 distinct cell types
+
+# remove the first white color
+colors_to_use&lt;- kelly.colors(n=14)[-1] %&gt;% unname()
+
+ggplot(umap_data, aes(x = V1, y = V2, color = celltype)) +
+  geom_point(size = 0.4) +
+  labs(title = &quot;UMAP Projection of CCA Canonical Variates&quot;,
+       x = &quot;UMAP 1&quot;,
+       y = &quot;UMAP 2&quot;) +
+  theme_minimal() +
+        scale_color_manual(values = colors_to_use) +
+        guides(colour = guide_legend(override.aes = list(size=2))) # increase the dot size in the legend</code></pre>
+<p><img src="figure/how-seurat-cca-label-transfer.Rmd/unnamed-chunk-17-1.png" width="672" style="display: block; margin: auto;" /></p>
+</div>
+<div id="what-if-we-do-not-do-cca-integration" class="section level3">
+<h3>What if we do not do CCA integration?</h3>
+<p>What if we do not use the CCA covariates for clustering? We can just
+concatenate two seurat object together and go through the routine
+process:</p>
+<pre class="r"><code># add a metadata column so you know which dataset the cells are from 
+pbmc3k$sample&lt;- &quot;3k&quot;
+pbmc10k$sample&lt;- &quot;10k&quot;
+
+# combine two seurat objects together
+pbmc&lt;- merge(pbmc3k, pbmc10k)
+
+pbmc&lt;- pbmc %&gt;% 
+  NormalizeData(normalization.method = &quot;LogNormalize&quot;, scale.factor = 10000) %&gt;%
+  FindVariableFeatures(selection.method = &quot;vst&quot;, nfeatures = 5000) %&gt;%
+  ScaleData() %&gt;%
+  RunPCA(verbose = FALSE) %&gt;%
+  FindNeighbors(dims = 1:30, verbose = FALSE) %&gt;%
+  FindClusters(resolution = 0.5, verbose = FALSE) %&gt;%
+  RunUMAP(dims = 1:30, verbose = FALSE)
+
+DimPlot(pbmc, label = TRUE, repel = TRUE, group.by= &quot;sample&quot;) </code></pre>
+<p><img src="figure/how-seurat-cca-label-transfer.Rmd/unnamed-chunk-18-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>Without using <code>CCA</code>, you see the cells are separated by
+samples. The idea of data integration is to make the cells of the same
+cell type group together even they are from different datasets while
+cells of different cell types still separate from each other.</p>
+</div>
+<div id="what-cca-achieves-in-single-cell-data" class="section level3">
+<h3>What CCA Achieves in Single-Cell Data:</h3>
+<ul>
+<li><p>Aligning Cell Embeddings: CCA produces canonical variates <span
+class="math inline">\(u\)</span> and <span
+class="math inline">\(v\)</span>, which are lower-dimensional embeddings
+of the cells from the two datasets. These embeddings are aligned in such
+a way that the cells from both datasets are maximally correlated in this
+new space.</p></li>
+<li><p>Identifying Shared Structure: By finding the common canonical
+directions, CCA captures the shared structure in gene expression between
+the two datasets, allowing cells with similar profiles across datasets
+to be aligned.</p></li>
+</ul>
+</div>
+<div id="comparison-to-pca" class="section level3">
+<h3>Comparison to PCA</h3>
+<p>Unlike PCA, which focuses on capturing variance within a
+<strong>single dataset</strong>, <code>CCA</code> focuses on capturing
+correlation between two datasets. Both involve matrix decomposition, but
+while <code>PCA</code> decomposes a single covariance matrix,
+<code>CCA</code> involves solving for relationships between the
+covariance matrices of two datasets.</p>
+<p>To summarize:</p>
+<ul>
+<li>PCA: Finds directions of maximum variance within a single
+dataset.</li>
+<li>CCA: Finds directions of maximum covariance between two
+datasets.</li>
+</ul>
+<p>Happy Learning!</p>
+<p>Tommy aka. Crazyhottommy</p>
+<br>
+<p>
+<button type="button" class="btn btn-default btn-workflowr btn-workflowr-sessioninfo" data-toggle="collapse" data-target="#workflowr-sessioninfo" style="display: block;">
+<span class="glyphicon glyphicon-wrench" aria-hidden="true"></span>
+Session information
+</button>
+</p>
+<div id="workflowr-sessioninfo" class="collapse">
+<pre class="r"><code>sessionInfo()</code></pre>
+<pre><code>#&gt; R version 4.4.1 (2024-06-14)
+#&gt; Platform: aarch64-apple-darwin20
+#&gt; Running under: macOS Sonoma 14.1
+#&gt; 
+#&gt; Matrix products: default
+#&gt; BLAS:   /Library/Frameworks/R.framework/Versions/4.4-arm64/Resources/lib/libRblas.0.dylib 
+#&gt; LAPACK: /Library/Frameworks/R.framework/Versions/4.4-arm64/Resources/lib/libRlapack.dylib;  LAPACK version 3.12.0
+#&gt; 
+#&gt; locale:
+#&gt; [1] en_US.UTF-8/en_US.UTF-8/en_US.UTF-8/C/en_US.UTF-8/en_US.UTF-8
+#&gt; 
+#&gt; time zone: America/New_York
+#&gt; tzcode source: internal
+#&gt; 
+#&gt; attached base packages:
+#&gt; [1] grid      stats     graphics  grDevices utils     datasets  methods  
+#&gt; [8] base     
+#&gt; 
+#&gt; other attached packages:
+#&gt;  [1] Polychrome_1.5.4        ggplot2_3.5.1           cluster_2.1.6          
+#&gt;  [4] uwot_0.2.2              ComplexHeatmap_2.20.0   RANN_2.6.1             
+#&gt;  [7] pbmc3k.SeuratData_3.1.4 SeuratData_0.2.2.9001   dplyr_1.1.4            
+#&gt; [10] irlba_2.3.5.1           Matrix_1.7-0            Seurat_5.1.0           
+#&gt; [13] SeuratObject_5.0.2      sp_2.1-4                workflowr_1.7.1        
+#&gt; 
+#&gt; loaded via a namespace (and not attached):
+#&gt;   [1] RColorBrewer_1.1-3     shape_1.4.6.1          rstudioapi_0.16.0     
+#&gt;   [4] jsonlite_1.8.8         magrittr_2.0.3         magick_2.8.5          
+#&gt;   [7] spatstat.utils_3.1-0   farver_2.1.2           rmarkdown_2.27        
+#&gt;  [10] GlobalOptions_0.1.2    fs_1.6.4               vctrs_0.6.5           
+#&gt;  [13] ROCR_1.0-11            Cairo_1.6-2            spatstat.explore_3.3-2
+#&gt;  [16] htmltools_0.5.8.1      sass_0.4.9             sctransform_0.4.1     
+#&gt;  [19] parallelly_1.38.0      KernSmooth_2.23-24     bslib_0.8.0           
+#&gt;  [22] htmlwidgets_1.6.4      ica_1.0-3              plyr_1.8.9            
+#&gt;  [25] plotly_4.10.4          zoo_1.8-12             cachem_1.1.0          
+#&gt;  [28] whisker_0.4.1          igraph_2.0.3           iterators_1.0.14      
+#&gt;  [31] mime_0.12              lifecycle_1.0.4        pkgconfig_2.0.3       
+#&gt;  [34] R6_2.5.1               fastmap_1.2.0          clue_0.3-65           
+#&gt;  [37] fitdistrplus_1.2-1     future_1.34.0          shiny_1.9.0           
+#&gt;  [40] digest_0.6.36          colorspace_2.1-1       S4Vectors_0.42.1      
+#&gt;  [43] patchwork_1.2.0        ps_1.7.7               rprojroot_2.0.4       
+#&gt;  [46] tensor_1.5             RSpectra_0.16-2        labeling_0.4.3        
+#&gt;  [49] progressr_0.14.0       fansi_1.0.6            spatstat.sparse_3.1-0 
+#&gt;  [52] httr_1.4.7             polyclip_1.10-7        abind_1.4-5           
+#&gt;  [55] compiler_4.4.1         doParallel_1.0.17      withr_3.0.0           
+#&gt;  [58] fastDummies_1.7.4      highr_0.11             MASS_7.3-60.2         
+#&gt;  [61] rappdirs_0.3.3         scatterplot3d_0.3-44   rjson_0.2.22          
+#&gt;  [64] tools_4.4.1            lmtest_0.9-40          httpuv_1.6.15         
+#&gt;  [67] future.apply_1.11.2    goftest_1.2-3          glue_1.7.0            
+#&gt;  [70] callr_3.7.6            nlme_3.1-164           promises_1.3.0        
+#&gt;  [73] Rtsne_0.17             getPass_0.2-4          reshape2_1.4.4        
+#&gt;  [76] generics_0.1.3         gtable_0.3.5           spatstat.data_3.1-2   
+#&gt;  [79] tidyr_1.3.1            data.table_1.15.4      utf8_1.2.4            
+#&gt;  [82] BiocGenerics_0.50.0    spatstat.geom_3.3-2    RcppAnnoy_0.0.22      
+#&gt;  [85] foreach_1.5.2          ggrepel_0.9.5          pillar_1.9.0          
+#&gt;  [88] stringr_1.5.1          spam_2.10-0            RcppHNSW_0.6.0        
+#&gt;  [91] later_1.3.2            circlize_0.4.16        splines_4.4.1         
+#&gt;  [94] lattice_0.22-6         survival_3.6-4         deldir_2.0-4          
+#&gt;  [97] tidyselect_1.2.1       miniUI_0.1.1.1         pbapply_1.7-2         
+#&gt; [100] knitr_1.48             git2r_0.35.0           gridExtra_2.3         
+#&gt; [103] IRanges_2.38.1         scattermore_1.2        stats4_4.4.1          
+#&gt; [106] xfun_0.46              matrixStats_1.3.0      stringi_1.8.4         
+#&gt; [109] lazyeval_0.2.2         yaml_2.3.10            evaluate_0.24.0       
+#&gt; [112] codetools_0.2-20       tibble_3.2.1           cli_3.6.3             
+#&gt; [115] xtable_1.8-4           reticulate_1.38.0      munsell_0.5.1         
+#&gt; [118] processx_3.8.4         jquerylib_0.1.4        Rcpp_1.0.13           
+#&gt; [121] globals_0.16.3         spatstat.random_3.3-1  png_0.1-8             
+#&gt; [124] spatstat.univar_3.0-0  parallel_4.4.1         dotCall64_1.1-1       
+#&gt; [127] listenv_0.9.1          viridisLite_0.4.2      scales_1.3.0          
+#&gt; [130] ggridges_0.5.6         crayon_1.5.3           leiden_0.4.3.1        
+#&gt; [133] purrr_1.0.2            GetoptLong_1.0.5       rlang_1.1.4           
+#&gt; [136] cowplot_1.1.3</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+
+<!-- Adjust MathJax settings so that all math formulae are shown using
+TeX fonts only; see
+https://docs.mathjax.org/en/latest/web/configuration.html. This will make
+the presentation more consistent at the cost of the webpage sometimes
+taking slightly longer to load. Note that this only works because the
+footer is added to webpages before the MathJax javascript. -->
+<script type="text/x-mathjax-config">
+  MathJax.Hub.Config({
+    "HTML-CSS": { availableFonts: ["TeX"] }
+  });
+</script>
+
+
+
+
+</div>
+</div>
+
+</div>
+
+<script>
+
+// add bootstrap table styles to pandoc tables
+function bootstrapStylePandocTables() {
+  $('tr.odd').parent('tbody').parent('table').addClass('table table-condensed');
+}
+$(document).ready(function () {
+  bootstrapStylePandocTables();
+});
+
+
+</script>
+
+<!-- tabsets -->
+
+<script>
+$(document).ready(function () {
+  window.buildTabsets("TOC");
+});
+
+$(document).ready(function () {
+  $('.tabset-dropdown > .nav-tabs > li').click(function () {
+    $(this).parent().toggleClass('nav-tabs-open');
+  });
+});
+</script>
+
+<!-- code folding -->
+
+<script>
+$(document).ready(function ()  {
+
+    // temporarily add toc-ignore selector to headers for the consistency with Pandoc
+    $('.unlisted.unnumbered').addClass('toc-ignore')
+
+    // move toc-ignore selectors from section div to header
+    $('div.section.toc-ignore')
+        .removeClass('toc-ignore')
+        .children('h1,h2,h3,h4,h5').addClass('toc-ignore');
+
+    // establish options
+    var options = {
+      selectors: "h1,h2,h3",
+      theme: "bootstrap3",
+      context: '.toc-content',
+      hashGenerator: function (text) {
+        return text.replace(/[.\\/?&!#<>]/g, '').replace(/\s/g, '_');
+      },
+      ignoreSelector: ".toc-ignore",
+      scrollTo: 0
+    };
+    options.showAndHide = true;
+    options.smoothScroll = true;
+
+    // tocify
+    var toc = $("#TOC").tocify(options).data("toc-tocify");
+});
+</script>
+
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+  (function () {
+    var script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src  = "https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML";
+    document.getElementsByTagName("head")[0].appendChild(script);
+  })();
+</script>
+
+</body>
+</html>

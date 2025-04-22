@@ -9,3 +9,8 @@ editor_options:
 ---
 
 Welcome to my research website.
+
+### Step by step tutorial 
+
+1. [How PCA works for cell annotation](how-seurat-pca-label-transfer.html).
+2. [How CCA works for cell annotation](how-seurat-cca-label-transfer.html)

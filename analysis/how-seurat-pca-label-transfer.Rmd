@@ -1,0 +1,554 @@
+---
+title: "How PCA projection and cell label transfer work in Seurat"
+output: html_document
+date: "2025-04-21"
+editor_options: 
+  chunk_output_type: console
+---
+
+
+**To not miss a post like this, sign up for my [newsletter](https://divingintogeneticsandgenomics.ck.page/profile) to learn computational
+biology and bioinformatics.**
+
+```{r, include=FALSE}
+# https://bookdown.org/yihui/rmarkdown-cookbook/cache-lazy.html
+knitr::opts_chunk$set(
+  comment = "#>", echo = TRUE, message= FALSE, warning = FALSE,
+  cache = FALSE, cache.lazy= FALSE
+)
+```
+
+### Understand the example datasets
+
+We will use PBMC3k and PBMC10k data. We will project the PBMC3k data to the PBMC10k data
+and get the labels 
+
+```{r}
+library(Seurat)
+library(Matrix)
+library(irlba)  # For PCA
+library(RcppAnnoy)  # For fast nearest neighbor search
+library(dplyr)
+```
+
+
+```{r}
+# Assuming the PBMC datasets (3k and 10k) are already normalized
+# and represented as sparse matrices
+# devtools::install_github('satijalab/seurat-data')
+library(SeuratData)
+#AvailableData()
+#InstallData("pbmc3k")
+
+pbmc3k<-UpdateSeuratObject(pbmc3k)
+pbmc3k@meta.data %>% head()
+
+# routine processing
+pbmc3k<- pbmc3k %>% 
+  NormalizeData(normalization.method = "LogNormalize", scale.factor = 10000) %>%
+  FindVariableFeatures(selection.method = "vst", nfeatures = 3000) %>%
+  ScaleData() %>%
+  RunPCA(verbose = FALSE) %>%
+  FindNeighbors(dims = 1:10, verbose = FALSE) %>%
+  FindClusters(resolution = 0.5, verbose = FALSE) %>%
+  RunUMAP(dims = 1:10, verbose = FALSE)
+```
+
+
+Get an idea of how the pbmc3k data look like:
+```{r}
+
+p1<- DimPlot(pbmc3k, reduction = "umap", label = TRUE, group.by = 
+                        "RNA_snn_res.0.5")
+
+p2<- DimPlot(pbmc3k, reduction = "umap", label = TRUE, group.by = "seurat_annotations", label.size = 3)
+
+p1 + p2
+```
+
+
+How the pbmc10k data look like:
+```{r}
+# download it here curl -Lo pbmc_10k_v3.rds https://www.dropbox.com/s/3f3p5nxrn5b3y4y/pbmc_10k_v3.rds?dl=1 
+
+pbmc10k<- readRDS("~/blog_data/pbmc_10k_v3.rds")
+pbmc10k<-UpdateSeuratObject(pbmc10k)
+pbmc10k@meta.data %>% head()
+
+DimPlot(pbmc10k, label = TRUE, repel = TRUE) + NoLegend()
+```
+
+
+The pbmc3k data and pbmc10k data have different number of gene names, let's subset 
+to the common genes.
+
+the pbmc3k dataset comes with annotations (the seurat_annotations column). In 
+this experiment, we will pretend we do not have it and use the 10k pbmc data to
+transfer the labels. Also the 10kpbmc cell labels are a little more granular. 
+
+```{r}
+pbmc3k_genes <- rownames(pbmc3k)
+pbmc10k_genes <- rownames(pbmc10k)
+
+# Find common genes
+common_genes <- intersect(pbmc3k_genes, pbmc10k_genes)
+
+
+pbmc3k <- subset(pbmc3k, features = common_genes)
+pbmc10k <- subset(pbmc10k, features = common_genes)
+
+all.equal(rownames(pbmc3k), rownames(pbmc10k))
+```
+
+### Understand PCA/SVD 
+
+For Singular Value Decomposition (SVD), the decomposition of an 
+$𝑋$ matrix (with dimensions $n\times p$)
+
+- $n$ is the number of cells/samples and 
+- $p$ is the number of genes/features) is as follows:
+
+$X = U D V^T$ 
+
+Components of SVD:
+
+- $U$ is a $n \times n$  orthogonal matrix. It contains the left singular vectors (associated with the rows of $X$ i.e., cells/samples).
+
+- $V$ is a $p \times p$  orthogonal matrix. It contains the right singular vectors (associated with the columns of $X$ i.e., genes/features).
+
+- $D$ is a $n \times p$ diagonal matrix (with non-negative real numbers on the diagonal).
+The diagonal elements are the singular values of $X$ which indicate the variance captured by each component.
+
+**Principal Components (PCs):**
+
+The principal components (PCs) are given by:
+$Z = UD$
+
+This matrix has the dimensions $n\times r$ (where $r$ is the rank of $X$)
+
+$Z$ contains the projection of your data onto the principal component space.
+
+SVD is: 
+
+$X = U D V^T$
+
+We $\times V$ on both sides of the `SVD` equation: 
+
+$XV = U DV^TV$
+
+Since the `V` matrix is orthonormal, $V \times V^T = I$. $I$ is the identity matrix.
+The equation becomes:
+
+$XV = UD$
+
+So, alternatively, you can express the PCs as:
+$Z = XV$
+
+In single-cell RNAseq analysis, the $Z$ matrix is used to construct the k-nearest neighbor graph and  clusters are detected using Louvain method in the graph. One can use any other clustering algorithms to cluster the cells (e.g., k-means, hierarchical clustering) in this PC space.
+
+I really wish I learned linear algebra better during college:)
+Note, you can take [MIT1806](https://ocw.mit.edu/courses/18-06-linear-algebra-spring-2010/), which is a great course for linear algebra.
+
+Let's calculate the PCA from scratch with `irlba` for big matrix. use built-in `svd` if the matrix is small.
+
+```{r}
+#install.packages("irlba")
+library(irlba)
+# use the scaled matrix 
+pbmc10k_scaled <- pbmc10k@assays$RNA@scale.data
+
+dim(pbmc10k_scaled)
+
+# Perform PCA using irlba (for large matrices). We transpose it first to gene x sample
+pca_10k <- irlba(t(pbmc10k_scaled), nv = 100)  # Keep 100 PCs. The orginal seurat object kept 100 PCs
+```
+
+read my previous blog post on some details of PCA steps within Seurat
+https://divingintogeneticsandgenomics.com/post/permute-test-for-pca-components/
+
+By default, `RunPCA` computes the PCA on the cell (n) x gene (p) matrix. One thing to note is that in linear algebra, a matrix is coded as n (rows are observations) X p (columns are features). That’s why by default, the gene x cell original matrix is transposed first to cell x gene: `irlba(A = t(x = data.use), nv = pcs.compute, ...)`. After                `irlba`, the `v` matrix is the gene loadings, the `u` matrix is the cell embeddings.
+
+This is the source code of `RunPCA` from `Seurat`:
+```{r eval=FALSE}
+pcs.compute <- min(pcs.compute, nrow(x = data.use)-1)
+pca.results <- irlba(A = t(x = data.use), nv = pcs.compute, ...)
+
+gene.loadings <- pca.results$v
+
+sdev <- pca.results$d/sqrt(max(1, ncol(data.use) - 1))
+
+if(weight.by.var){
+      cell.embeddings <- pca.results$u %*% diag(pca.results$d)
+    } else {
+      cell.embeddings <- pca.results$u
+    }
+
+rownames(x = gene.loadings) <- rownames(x = data.use)
+colnames(x = gene.loadings) <- paste0(reduction.key, 1:pcs.compute)
+rownames(x = cell.embeddings) <- colnames(x = data.use)
+colnames(x = cell.embeddings) <- colnames(x = gene.loadings)
+```
+
+Note, the diagonal matrix $D$ in `svd`/`irlba` output in `R` is the `d` vector for the diagonal values, and you convert it to a matrix by `diag(d)`.
+
+```{r}
+# get the gene loadings (V matrix). 
+gene_loadings_10k <- pca_10k$v  # Gene loadings (features/genes in rows, PCs in columns)
+dim(gene_loadings_10k)
+
+rownames(gene_loadings_10k) <- rownames(pbmc10k_scaled)
+colnames(gene_loadings_10k) <- paste0("PC", 1:100)
+# 2068 most variable genes (after subsetting the common genes with the pbmc3k data)
+# ideally, we should re-run FindVariableFeatures, but I am skipping it
+VariableFeatures(pbmc10k) %>% length()
+
+# Get PCA embeddings/cell embeddings (U matrix * D matrix) 
+cell_embeddings_10k <- pca_10k$u %*% diag(pca_10k$d)  # Cell embeddings (10k cells in rows)
+dim(cell_embeddings_10k)
+
+rownames(cell_embeddings_10k) <- colnames(pbmc10k_scaled)
+colnames(cell_embeddings_10k) <- colnames(gene_loadings_10k)
+
+cell_embeddings_10k[1:5, 1:10]
+```
+
+
+center the 3k pbmc data with the 10k gene means and scale:
+```{r}
+pbmc3k_normalized <- pbmc3k@assays$RNA$data
+
+# Center the 3k PBMC dataset based on 10k dataset's gene means
+pbmc3k_scaled <- scale(t(pbmc3k_normalized), 
+                       center = rowMeans(pbmc10k@assays$RNA$data), 
+                       scale = TRUE)
+```
+
+Centering the transposed 3k PBMC dataset based on the 10k dataset's gene means is an important step in the process of projecting one dataset onto another, particularly in single-cell RNA-seq analysis for label transfer. Here are the main reasons why this step is necessary:
+
+1. Aligning Data Distributions: Centering the 3k dataset using the 10k dataset's means ensures both datasets are aligned, reducing biases from differences in gene expression profiles.
+
+2. Ensuring Consistency: If the datasets come from different conditions, centering standardizes them, making them more comparable.
+
+3. Variance Representation: PCA is sensitive to the data's mean; centering the 3k dataset with the 10k's means ensures the variance is accurately captured by the principal components.
+
+4. Improving Projection Accuracy: Proper centering improves projection accuracy and enhances the label transfer process by focusing on biological variation instead of technical noise.
+
+```{r}
+dim(pbmc3k_scaled)
+
+# subset the same genes for the scaled 
+pbmc3k_scaled<- pbmc3k_scaled[, rownames(pbmc10k_scaled)]
+
+dim(pbmc3k_scaled)
+```
+
+### Project the 3k cells onto the PCA space of 10K dataset
+
+Now, we are using the $U = XV$ formula. The expression matrix is the pbmc3k 
+scaled matrix and the **$V$ matrix is from the 10k pbmc data**. 
+
+```{r}
+library(ggplot2)
+cell_embeddings_3k <- as.matrix(pbmc3k_scaled) %*% gene_loadings_10k
+
+cell_embeddings_3k[1:5, 1:5]
+```
+
+We can plot the 3K pmbc cells in the 10k pmbc PCA space:
+```{r}
+all.equal(rownames(cell_embeddings_3k), rownames(pbmc3k@meta.data))
+
+cbind(cell_embeddings_3k, pbmc3k@meta.data) %>%
+        ggplot(aes(x=PC1, y=PC2)) +
+        geom_point(aes(color = seurat_annotations)) +
+        theme_classic(base_size = 14)
+        
+# PCA space based on pbmc3k its own 
+DimPlot(pbmc3k, reduction = "pca", group.by = "seurat_annotations", 
+        label = TRUE) +
+        NoLegend()
+```
+We see the cells roughly split into three major "islands": B cells, myeloid cells (CD14/CD16+ monocytes) and the T cell/NK cells.
+
+###  identification of the k nearest neighbors
+
+Now that the 3k pbmc cell ebmeddings are projected to the 10k pbmc PCA space. We can find the k nearest neighbors in the 10k dataset to every cell in the 3k dataset.
+
+We are using `AnnoyAngular` which calculates the cosine distance in the PCA space.
+
+```{r}
+# Use the Annoy algorithm to find nearest neighbors between 3k and 10k datasets
+n_neighbors <- 30  # Number of nearest neighbors to find k =30
+
+# Create Annoy index for 10k PBMC dataset
+annoy_index <- new(AnnoyAngular, ncol(cell_embeddings_10k)) ##use cosine distance Angular
+for (i in 1:nrow(cell_embeddings_10k)) {
+  annoy_index$addItem(i - 1, cell_embeddings_10k[i, ])
+}
+annoy_index$build(10)  # Build the index with 10 trees
+
+# Find nearest neighbors for each cell in 3k dataset
+nn_indices <- t(sapply(1:nrow(cell_embeddings_3k), function(i) {
+  annoy_index$getNNsByVector(cell_embeddings_3k[i, ], n_neighbors)
+}))
+
+# nn_indices gives you the indices of nearest neighbors in the 10k PBMC dataset
+# the rows are cells from 3k dataset, columns are the 30 nearest cells in the 10k dataset
+dim(nn_indices)
+
+head(nn_indices)
+```
+
+### Label transfer based on the nearest neighbors
+
+```{r}
+labels_10k<- as.character(pbmc10k$celltype)
+# Transfer labels based on majority vote from nearest neighbors
+transfer_labels <- apply(nn_indices, 1, function(neighbors) {
+  # Get labels for the nearest neighbors
+  neighbor_labels <- labels_10k[neighbors + 1]  # Add 1 for R's 1-based index
+  
+  # Return the most common label (majority vote)
+  most_common_label <- names(sort(table(neighbor_labels), decreasing = TRUE))[1]
+  return(most_common_label)
+})
+
+# Now, transfer_labels contains the predicted labels for the 3k PBMC dataset
+head(transfer_labels)
+
+pbmc3k$predicted<- transfer_labels
+
+DimPlot(pbmc3k, reduction = "umap", group.by = "predicted", label = TRUE, repel=TRUE) +
+        NoLegend()
+```
+
+
+### compare with Seurat's wrapper
+
+```{r}
+
+# Step 1: Find transfer anchors
+anchors <- FindTransferAnchors(
+  reference = pbmc10k,     # The reference dataset
+  query = pbmc3k,          # The query dataset
+  dims = 1:100,            # The dimensions to use for anchor finding
+  reduction = "pcaproject" # this is the default
+)
+
+# Step 2: Transfer labels
+predictions <- TransferData(
+  anchors = anchors,           # The anchors identified in the previous step
+  refdata = pbmc10k$celltype, # Assuming 'label' is the metadata containing the true labels in seurat_10k
+  dims = 1:30                  # Dimensions to use for transferring
+)
+
+# Step 3: Add predictions to the query dataset
+pbmc3k <- AddMetaData(pbmc3k, metadata = predictions)
+
+# predicted.id is from Seurat's wrapper function, predicted is from our naive implementation
+table(pbmc3k$predicted, pbmc3k$predicted.id)
+```
+
+visualize in a heatmap 
+```{r}
+library(ComplexHeatmap)
+table(pbmc3k$predicted, pbmc3k$predicted.id) %>%
+        as.matrix() %>%
+        scale() %>%
+        Heatmap(cluster_rows = FALSE, cluster_columns= FALSE, name= "scaled\ncell number")
+```
+
+Our native implementation of the k nearest neighbor label transferring is working decently well:)
+
+## Mutual nearest neighbors (MNN)
+
+In Seurat, the mutual nearest neighbors (MNN) method is a key part of anchor identification during label transfer. Here’s a breakdown of what MNN does, how it differs from the PCA projection with k-nearest neighbors (kNN), and how labels are transferred for cells that are not mutual nearest neighbors.
+
+* What is Mutual Nearest Neighbors (MNN) in Seurat?
+
+Mutual nearest neighbors (MNN) is used to match cells from two datasets (query and reference) based on their proximity in the shared feature space (e.g., PCA space). In this context:
+
+- Mutual Nearest Neighbors: For a cell in dataset A, find its nearest neighbors in dataset B, and for a cell in dataset B, find its nearest neighbors in dataset A. If two cells are nearest neighbors of each other, they are considered mutual nearest neighbors (MNNs).
+
+- Anchor Identification: MNNs serve as anchors or points of correspondence between the two datasets. These anchors represent pairs of cells from the two datasets that have similar profiles, and they help align the datasets for further downstream tasks such as label transfer.
+
+* How is MNN Different from Your PCA Projection with kNN?
+
+- Mutual Nearest Neighbors (MNN):
+
+MNN requires that the nearest neighbor relationship is mutual: a cell in the query dataset must be a nearest neighbor of a cell in the reference dataset and vice versa.
+MNN is designed to be more robust when integrating datasets, as it ensures bidirectional similarity between cells in the query and reference datasets.
+It captures correspondence between cells that truly resemble each other in both datasets, which is particularly important when datasets have batch effects or other technical differences.
+
+* k-Nearest Neighbors (kNN) in PCA Projection:
+
+In PCA projection with  k-nearest neighbors, you project the query dataset into the reference dataset's PCA space and then find the nearest neighbors in that space.
+The nearest neighbor relationship is one-sided: for each cell in the query dataset, you only find its nearest neighbors in the reference dataset.
+
+This approach does not check if the reference dataset’s cells also treat the query dataset’s cells as nearest neighbors, which can introduce errors if the datasets are not perfectly aligned or suffer from batch effects.
+
+Now, let's find the nearest neighbors for each dataset separately:
+```{r}
+library(RcppAnnoy)
+
+# Number of nearest neighbors to find
+n_neighbors <- 30
+
+# Build an annoy index for the 10k dataset
+#annoy_index_10k <- new(AnnoyEuclidean, ncol(cell_embeddings_10k))
+annoy_index_10k <- new(AnnoyAngular, ncol(cell_embeddings_10k)) #use cosine distance instead
+
+# Add each cell's PCA embeddings to the index
+for (i in 1:nrow(cell_embeddings_10k)) {
+  annoy_index_10k$addItem(i - 1, cell_embeddings_10k[i, ])  # 0-based index for Annoy
+}
+
+# Build the index for fast nearest neighbor search
+annoy_index_10k$build(10)
+```
+
+Find nearest neighbors in 10k for each cell in 3k
+
+```{r}
+nn_10k_for_3k <- t(sapply(1:nrow(cell_embeddings_3k), function(i) {
+  annoy_index_10k$getNNsByVector(cell_embeddings_3k[i, ], n_neighbors)
+}))
+
+# Adjust for R's 1-based indexing
+nn_10k_for_3k <- nn_10k_for_3k + 1  # convert to 1-based indexing for R
+
+head(nn_10k_for_3k)
+```
+
+Similarly, build an index for the 3k dataset
+```{r}
+# annoy_index_3k <- new(AnnoyEuclidean, ncol(cell_embeddings_3k))
+annoy_index_3k <- new(AnnoyAngular, ncol(cell_embeddings_3k)) 
+
+for (i in 1:nrow(cell_embeddings_3k)) {
+  annoy_index_3k$addItem(i - 1, cell_embeddings_3k[i, ])  # 0-based index for Annoy
+}
+
+annoy_index_3k$build(10)
+```
+
+Find nearest neighbors in 3k for each cell in 10k
+```{r}
+nn_3k_for_10k <- t(sapply(1:nrow(cell_embeddings_10k), function(i) {
+  annoy_index_3k$getNNsByVector(cell_embeddings_10k[i, ], n_neighbors)
+}))
+
+# Adjust for R's 1-based indexing
+nn_3k_for_10k <- nn_3k_for_10k + 1  # convert to 1-based indexing for R
+```
+A key thing here is that `RcppAnnoy` in `C` is 0 based, and R is 1 based.
+We need to add 1 to the index. Otherwise, I will get non-sense results!
+
+###  Identify Mutual Nearest Neighbors (MNN)
+
+Now identify Mutual Nearest Neighbors and include the transfer score:
+
+```{r}
+labels_10k <- as.character(labels_10k)
+
+# Create empty vectors to store the scores and labels
+pbmc3k_transferred_labels <- rep(NA, nrow(cell_embeddings_3k))
+pbmc3k_transfer_scores <- rep(0, nrow(cell_embeddings_3k))
+
+# Loop through each cell in the 3k dataset to find the mutual nearest neighbors
+for (i in 1:nrow(cell_embeddings_3k)) {
+  # Get nearest neighbors of the i-th 3k cell in 10k
+  nn_in_10k <- nn_10k_for_3k[i, ]
+  
+  # Initialize count for mutual nearest neighbors
+  mutual_count <- 0
+  
+  # Check mutual nearest neighbors
+  for (nn in nn_in_10k) {
+    # Check if i-th 3k cell is a nearest neighbor for the nn-th 10k cell
+    if (i %in% nn_3k_for_10k[nn, ]) {  # Correct 1-based indexing
+      mutual_count <- mutual_count + 1
+      
+      # Transfer the label from the 10k cell to the 3k cell
+      pbmc3k_transferred_labels[i] <- labels_10k[nn]
+    }
+  }
+  
+  # Calculate the transfer score (mutual neighbor count / total neighbors)
+  pbmc3k_transfer_scores[i] <- mutual_count / n_neighbors
+}
+
+```
+
+###  Handling Cells Without MNN:
+
+* Label Transfer for Non-Mutual Nearest Neighbors
+Seurat handles cells that are not mutual nearest neighbors (i.e., cells that do not have a direct anchor) in the following ways:
+
+- Weighting Anchors:
+
+Seurat uses a weighted transfer system. Even if a query cell does not have a direct MNN, the label transfer process still considers the relationship between that query cell and the nearest anchors (the mutual nearest neighbors).
+
+For cells that are not mutual nearest neighbors, their labels are predicted based on the similarity (distance) to the identified anchors. The influence of each anchor is weighted according to its distance from the query cell.
+Extrapolation for Non-MNN Cells:
+
+For cells in the query dataset that don’t have mutual nearest neighbors, the labels can still be inferred based on their position relative to the MNN cells.
+
+Seurat’s `TransferData` function takes into account the proximity of these non-MNN cells to the anchor cells and extrapolates the labels based on the information from the anchor set. The cells closest to the MNN cells will receive a higher weight when transferring labels.
+Prediction Confidence:
+
+Seurat also provides prediction scores that indicate the confidence of the label transfer for each cell. Cells that do not have strong mutual nearest neighbors may receive lower confidence scores.
+
+For cells without MNN, we can still assign labels based on the nearest neighbor from pbmc10k, but their transfer score will be lower (or zero). Our implementation just use the nearest neighbor in the 10k even they are not mutually nearest to simplify the demonstration.
+
+```{r}
+# Fill in missing labels for cells without MNN based on nearest neighbor in 10k
+for (i in 1:length(pbmc3k_transferred_labels)) {
+  if (is.na(pbmc3k_transferred_labels[i])) {
+    # Assign the label of the nearest 10k cell
+    nearest_10k_cell <- nn_10k_for_3k[i, 1]  # First nearest neighbor
+    pbmc3k_transferred_labels[i] <- labels_10k[nearest_10k_cell]
+    
+    # Assign a lower score for non-mutual neighbors
+    pbmc3k_transfer_scores[i] <- 0.01  # assign a small score like 0.01 for non-mutual
+  }
+}
+
+head(pbmc3k_transferred_labels)
+head(pbmc3k_transfer_scores)
+```
+
+Let's see how it looks like
+
+```{r}
+# Add predictions to the query dataset
+pbmc3k$pbmc3k_transferred_labels<- pbmc3k_transferred_labels
+
+# predicted.id is from Seurat's wrapper function, pbmc3k_transferred_labels is from our naive MNN implementation
+
+table(pbmc3k$pbmc3k_transferred_labels, pbmc3k$predicted.id)
+```
+
+Visualize in a heatmap
+```{r}
+table(pbmc3k$pbmc3k_transferred_labels, pbmc3k$predicted.id) %>%
+        as.matrix() %>%
+        scale() %>%
+        Heatmap(cluster_rows = FALSE, cluster_columns= FALSE, name= "scaled\ncell number")
+```
+
+Our native implementation of MNN is not exactly the same as Seurat. Seurat’s MNN implementation includes additional optimization like PC scaling and anchor filtering, but it is very good to see we get reasonable results!
+
+In `Seurat`(Tim Stuart et al 2019), the other way is to use Canonical Correlation Analysis (CCA) and we will leave it to a future post!
+
+![](/imgs/CCA.png)
+
+### Final Note
+
+I asked ChatGPT for help a lot, and it gave me a good starting point for the code. I had
+to adapt the code when I had the errors. Anyway, it shows how powerful `chatGPT` is and 
+you can use it as you study companion. Embrace AI or it will replace people who do not use it :)
+
+Happy Learning!
+
+Tommy 

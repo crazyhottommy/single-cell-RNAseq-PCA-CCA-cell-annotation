@@ -1,0 +1,553 @@
+---
+title: "How CCA alignment and cell label transfer work in Seurat"
+output: html_document
+date: "2025-04-21"
+editor_options: 
+  chunk_output_type: console
+---
+
+**To not miss a post like this, sign up for my [newsletter](https://divingintogeneticsandgenomics.ck.page/profile) to learn computational
+biology and bioinformatics.**
+
+```{r, include=FALSE}
+# https://bookdown.org/yihui/rmarkdown-cookbook/cache-lazy.html
+knitr::opts_chunk$set(
+  comment = "#>", echo = TRUE, message= FALSE, warning = FALSE,
+  cache = FALSE, cache.lazy= FALSE
+)
+```
+
+
+### Understand CCA
+
+Following my last blog post on [PCA projection and cell label transfer](https://divingintogeneticsandgenomics.com/post/pca-projection/), we are 
+going to talk about `CCA`.
+
+In single-cell RNA-seq data integration using `Canonical Correlation Analysis (CCA)`, we typically align two matrices representing different datasets, where both datasets have the same set of genes but different numbers of cells. CCA is used to identify correlated structures across the two datasets and align them in a common space.
+
+
+Let’s denote the two datasets as:
+
+$X$: a matrix with dimensions $p \times n1$ (where $p$ is the number of genes and 
+$n$ is the number of cells in dataset 1, e.g., PBMC 3k)
+
+Y: a matrix with dimensions $p \times n2$ (where $p$ is the number of genes and 
+$n$ is the number of cells in dataset 2, e.g., PBMC 10k)
+
+In this case, the number of genes (rows) is the same in both matrices, but the number of cells (columns) is different.
+
+The goal of `CCA` here is to find linear combinations of the genes in both datasets that produce correlated cell embeddings in a lower-dimensional space. Essentially, we aim to align the two datasets by identifying the correlated patterns in gene expression that are shared between the two sets of cells.
+
+### How CCA Works
+
+Given the two datasets $X$ and $Y$, CCA finds the linear combinations of the gene expression profiles that are maximally correlated. This means that for each cell in $X$ and each cell in $Y$ we find directions in the gene expression space that maximize the correlation between the two datasets.
+ 
+### Formulas for CCA
+
+Input Data:
+
+a matrix $X \in \mathbb{R}^{p \times n_1}$ is the matrix of gene expression from the first dataset (3k cells), and $Y \in \mathbb{R}^{p \times n_2}$ is the matrix of gene expression from the second dataset (10k cells).
+
+**Canonical Variates**:
+We aim to find vectors $a \in \mathbb{R}^p$ and $b \in \mathbb{R}^p$ such that:
+
+$$
+u = X^T a \quad (\text{canonical variate for cells in } X)
+$$
+
+$$
+v = Y^T b \quad (\text{canonical variate for cells in } Y)
+$$
+
+Where $u$ and $v$ are the canonical variates, and the goal is to maximize the correlation:
+
+$$
+\text{corr}(u, v) = \frac{\text{cov}(u, v)}{\sqrt{\text{var}(u)} \cdot \sqrt{\text{var}(v)}}
+$$
+
+**Covariance Matrices**:
+$$
+\Sigma_{XX} = \frac{1}{n_1 - 1} XX^T \quad \text{(covariance matrix of dataset } X)
+$$
+
+$$
+\Sigma_{YY} = \frac{1}{n_2 - 1} YY^T \quad \text{(covariance matrix of dataset } Y)
+$$
+
+$$
+\Sigma_{XY} = \frac{1}{\min(n_1, n_2) - 1} X^TY \quad \text{(cross-covariance matrix between } X \text{ and } Y)
+$$
+
+**Generalized Eigenvalue Problem (GEP)**:
+
+To find the canonical weights $a$ and $b$, we solve the generalized eigenvalue problem:
+
+$$
+\Sigma_{XX}^{-1} \Sigma_{XY} \Sigma_{YY}^{-1} \Sigma_{YX} a = \lambda a
+$$
+
+Similarly for $b$:
+
+$$
+\Sigma_{YY}^{-1} \Sigma_{YX} \Sigma_{XX}^{-1} \Sigma_{XY} b = \lambda b
+$$
+
+The eigenvalue $\lambda$ corresponds to the canonical correlation. 
+$a$ is the canonical weight vector for dataset $X$
+$b$ is the canonical weight vector for dataset $Y$
+
+Solving the eigenvalue problem involves finding the eigenvalues and eigenvectors that maximize the correlation between the datasets, but it effectively solves the same problem as the `SVD` for the covariance matrix $\Sigma XY$. One can demonstrate that mathematically using matrix calculation. I am not a math person, I will leave it to you to do the proof :). Again, I really wish I learned linear algebra better.
+
+**Note** watch [this for eigenvalues and eigenvectors](https://www.3blue1brown.com/lessons/eigenvalues) from 3blue1brown.
+
+**Note** read this blog post https://xinmingtu.cn/blog/2022/CCA_dual_PCA/ by Xinming Tu (with nice visuals!)
+to understand the relationship between CCA and PCA in a more mathematical way. 
+
+### How SVD is used and how it relates to the GEP.
+
+**Perform SVD on the Cross-Covariance Matrix**:
+
+   The SVD of the cross-covariance matrix \( \Sigma_{XY} \) can be expressed as:
+
+   $$
+   \Sigma_{XY} = U D V^T
+   $$
+
+   where:  
+   - \( U \) is a matrix of left singular vectors (canonical directions for dataset \( X \),  
+   - \( V \) is a matrix of right singular vectors (canonical directions for dataset \( Y \),  
+   - \( D \) is a diagonal matrix containing singular values, which represent the strength of correlations.
+   
+
+The matrix $U$ contains the left singular vectors of $\Sigma_{XY}$, which correspond to the canonical directions for dataset $X$. These directions are the axes along which the data in $X$ is maximally correlated with the data in $Y$, as measured by the singular values in $D$. Thus, $U$ represents the canonical variates (directions) for $X$, just as $V$ represents the canonical variates for $Y$.
+
+
+### Let's see an example in action
+
+```{r}
+library(Seurat)
+library(Matrix)
+library(irlba)  # For PCA
+library(dplyr)
+# devtools::install_github('satijalab/seurat-data')
+library(SeuratData)
+#AvailableData()
+#InstallData("pbmc3k")
+```
+
+The pbmc3k data and pbmc10k data have different number of gene names, let's subset 
+to the common genes.
+
+```{r}
+# download 10k dataset here curl -Lo pbmc_10k_v3.rds https://www.dropbox.com/s/3f3p5nxrn5b3y4y/pbmc_10k_v3.rds?dl=1 
+
+pbmc3k<-UpdateSeuratObject(pbmc3k)
+pbmc10k<- readRDS("~/blog_data/pbmc_10k_v3.rds")
+pbmc10k<-UpdateSeuratObject(pbmc10k)
+
+pbmc3k_genes <- rownames(pbmc3k)
+pbmc10k_genes <- rownames(pbmc10k)
+
+# Find common genes
+common_genes <- intersect(pbmc3k_genes, pbmc10k_genes)
+
+# reorder the genes to the same order
+pbmc3k <- subset(pbmc3k, features = common_genes)
+pbmc10k <- subset(pbmc10k, features = common_genes)
+
+```
+
+How the pbmc10k data look like:
+```{r}
+# routine processing for 3k dataset
+pbmc3k<- pbmc3k %>% 
+  NormalizeData(normalization.method = "LogNormalize", scale.factor = 10000) %>%
+  FindVariableFeatures(selection.method = "vst", nfeatures = 5000) %>%
+  ScaleData() %>%
+  RunPCA(verbose = FALSE) %>%
+  FindNeighbors(dims = 1:10, verbose = FALSE) %>%
+  FindClusters(resolution = 0.5, verbose = FALSE) %>%
+  RunUMAP(dims = 1:10, verbose = FALSE)
+
+DimPlot(pbmc10k, label = TRUE, repel = TRUE) + NoLegend()
+```
+
+The pbmc3k dataset comes with annotations (the seurat_annotations column). In 
+this experiment, we will pretend we do not have it and use the 10k pbmc data to
+transfer the labels. Also the pbmc10k cell labels are a little more granular. 
+
+```{r}
+pbmc10k <- NormalizeData(pbmc10k)
+pbmc10k <- FindVariableFeatures(pbmc10k, selection.method = "vst", nfeatures = 5000)
+pbmc10k <- ScaleData(pbmc10k)
+
+# Find common variable features, Seurat has a more complex function
+# we will take the intersection
+#variable_genes <- SelectIntegrationFeatures(list(pbmc3k, pbmc10k), nfeatures = 3000)
+
+variable_genes <- intersect(VariableFeatures(pbmc3k), VariableFeatures(pbmc10k))
+```
+
+Note we need to scale them by genes across the cells first.
+```{r}
+# Step 1: Center the datasets
+centered_pbmc3k <- t(scale(t(pbmc3k@assays$RNA@data[variable_genes,]), center =TRUE, scale =TRUE))
+centered_pbmc10k <- t(scale(t(pbmc10k@assays$RNA@data[variable_genes,]), center= TRUE, scale =TRUE))
+
+dim(centered_pbmc3k)
+dim(centered_pbmc10k)
+```
+
+
+`SVD` directly computes the singular values (canonical correlations) and singular vectors (canonical variates) by decomposing $\Sigma XY$
+
+The singular value decomposition (SVD) can be mathematically related to solving the generalized eigenvalue problem.
+
+```{r}
+Sigma_XY<- (1 / (min(ncol(centered_pbmc3k), ncol(centered_pbmc10k)) - 1)) * t(centered_pbmc3k) %*% centered_pbmc10k
+
+dim(Sigma_XY)
+# Perform SVD
+k <- 20  # Number of CCA dimensions
+cca_svd <- irlba::irlba(Sigma_XY, nu=k, nv=k)
+
+# Get canonical variates and correlations
+canonical_variates_3k <- cca_svd$u  # PBMC3k canonical variates
+canonical_variates_10k <- cca_svd$v  # PBMC10k canonical variates
+
+# cca_svd$d contains the singular values
+canonical_cors <- cca_svd$d  # Canonical correlations
+
+range(canonical_cors)
+
+# normalize it so the first CCA dimension has a correlation close to 1 
+canonical_cors<- cca_svd$d / sum(cca_svd$d)
+
+barplot(canonical_cors, 
+        main="Canonical Correlations", 
+        xlab="Canonical Dimension", 
+        ylab="Correlation",
+        col="lightblue")
+
+```
+The sum of the first few CCA dimension should have a correlation close to 1. 
+
+### L2 Normalization of Canonical Correlation Vectors
+
+From the Seurat V3 paper: https://pmc.ncbi.nlm.nih.gov/articles/PMC6687398/
+
+>While MNNs have previously been identified using L2-normalized gene expression, significant differences across batches can obscure the accurate identification of MNNs, particularly when the batch effect is on a similar scale to the biological differences between cell states. To overcome this, we first jointly reduce the dimensionality of both datasets using diagonalized canonical correlation analysis (CCA), then apply L2-normalization to the canonical correlation vectors (Figure 1A,B). We next search for MNNs in this shared low-dimensional representation
+
+Purpose of L2 Normalization: After computing the canonical variates (the linear combinations of the original variables that maximize correlation), L2 normalization (also known as Euclidean normalization) is applied to these vectors. This process scales the vectors so that their lengths (norms) equal one.
+
+Mathematical Formulation: For a vector $v$
+ L2 normalization can be expressed as:
+
+$v_{\text{normalized}} = \frac{v}{\|v\|_2}$
+
+where  $\|v\|_2$ is the L2 norm (Euclidean norm) of the vector.
+
+Benefits of L2 Normalization:
+
+Stabilization: It helps to stabilize the comparison of canonical correlation vectors across datasets, making the downstream analysis more robust.
+
+Interpretable Scale: Normalized vectors provide a more interpretable scale for distances and similarities in the integrated dataset.
+
+Apply the L2 normalization for each cell.
+```{r}
+l2_normalize <- function(x) {
+  x / sqrt(rowSums(x^2))
+}
+
+# L2-normalize the canonical variates for PBMC 3k
+canonical_variates_3k<- l2_normalize(canonical_variates_3k)
+
+# L2-normalize the canonical variates for PBMC 10k
+canonical_variates_10k <- l2_normalize(canonical_variates_10k)
+
+# Check dimensions to make sure they remain the same
+dim(canonical_variates_3k)  # Should be 2700 by 20
+dim(canonical_variates_10k)  # Should be 9432 by 20
+
+```
+
+## Function to find Mutual nearest neighbors (MNN)
+
+We will use `RANN` package to do it at a high level. We used `RcppAnnoy` in the last
+post.
+
+```{r}
+library(RANN)
+
+# Step 1: Find Nearest Neighbors using RANN
+k <- 30  # Number of neighbors to consider
+nn_result_10k <- nn2(data = canonical_variates_10k, query = canonical_variates_3k, k = k)
+nn_indices_10k <- nn_result_10k$nn.idx  # Indices of nearest neighbors in pbmc10k
+
+# Find the nearest neighbors in pbmc3k for pbmc10k cells
+nn_result_3k <- nn2(data = canonical_variates_3k, query = canonical_variates_10k, k = k)
+nn_indices_3k <- nn_result_3k$nn.idx  # Indices of nearest neighbors in pbmc3k
+
+# Step 2: Identify Mutual Nearest Neighbors
+find_mnn <- function(nn_indices_10k, nn_indices_3k) {
+  mnn_list <- vector("list", length = nrow(canonical_variates_3k))
+  
+  for (i in 1:nrow(canonical_variates_3k)) {
+    neighbors_10k <- nn_indices_10k[i, ]  # Neighbors in pbmc10k
+    mutual_neighbors <- c()
+    
+    for (neighbor in neighbors_10k) {
+      # Check if this neighbor sees the original cell as its nearest neighbor
+      if (i %in% nn_indices_3k[neighbor, ]) {
+        mutual_neighbors <- c(mutual_neighbors, neighbor)
+      }
+    }
+    mnn_list[[i]] <- mutual_neighbors
+  }
+  return(mnn_list)
+}
+
+# Find MNNs
+mnn_indices <- find_mnn(nn_indices_10k, nn_indices_3k)
+```
+
+
+Label transfer for cells that have MNNs.
+
+```{r}
+# Step 3: Label Transfer with MNN
+# Assume we have labels for the PBMC10k dataset
+pbmc10k_labels <- as.character(pbmc10k$celltype)
+
+# Initialize transferred labels and scores
+transferred_labels <- character(length = nrow(canonical_variates_3k))
+transfer_scores <- numeric(length = nrow(canonical_variates_3k))
+
+# Transfer labels with error handling
+for (i in seq_along(mnn_indices)) {
+  if (length(mnn_indices[[i]]) > 0) {
+    # Get labels for the MNNs
+    labels <- pbmc10k_labels[mnn_indices[[i]]]
+    
+    # Remove NAs from labels
+    labels <- labels[!is.na(labels)]
+    
+    # Check if we have any valid labels left
+    if (length(labels) > 0) {
+      # Assign the most common label among the MNNs
+      transferred_labels[i] <- names(sort(table(labels), decreasing = TRUE))[1]
+      # Calculate transfer score as the proportion of matching labels
+      transfer_scores[i] <- max(table(labels)) / length(labels)
+    } else {
+      # Assign NA or a default value if no valid labels
+      transferred_labels[i] <- NA_character_  # Keep it as NA of character type
+      transfer_scores[i] <- 0
+    }
+  } else {
+    # For cells without MNN, assign NA or a default label (e.g., "unknown")
+    transferred_labels[i] <- NA_character_
+    transfer_scores[i] <- 0
+  }
+}
+```
+
+
+####  Step 4: Handle cells without MNN
+
+You can assign a default label or propagate labels based on other criteria. For example, using a knn approach or global label distribution. Optionally, you could implement a fallback strategy like the following:
+
+```{r}
+for (i in seq_along(transferred_labels)) {
+  if (is.na(transferred_labels[i])) {
+    # Look for the nearest neighbor labels in pbmc10k
+    nearest_label_index <- nn_indices_10k[i, 1]  # Get the first neighbor
+    transferred_labels[i] <- pbmc10k_labels[nearest_label_index]  # Assign its label
+  }
+}
+
+# transferred_labels now contains labels transferred from pbmc10k to pbmc3k
+# transfer_scores indicates the confidence of the label transfer for each cell
+
+pbmc3k$transferred_labels<- transferred_labels
+```
+
+### compare with Seurat's wrapper
+
+the default is `pcaprojection` as what we did in my last blog post.
+
+```{r}
+# Step 1: Find transfer anchors
+anchors <- FindTransferAnchors(
+  reference = pbmc10k,     # The reference dataset
+  query = pbmc3k,          # The query dataset
+  dims = 1:100,                # The dimensions to use for anchor finding
+  #reduction = "cca" # 
+)
+
+# Step 2: Transfer labels
+predictions <- TransferData(
+  anchors = anchors,           # The anchors identified in the previous step
+  refdata = pbmc10k$celltype, # Assuming 'label' is the metadata containing the true labels in seurat_10k
+  dims = 1:30                  # Dimensions to use for transferring
+)
+
+
+# Step 3: Add predictions to the query dataset
+pbmc3k <- AddMetaData(pbmc3k, metadata = predictions)
+
+# predicted.id is from Seurat's wrapper function, predicted is from our naive implementation
+table(pbmc3k$transferred_labels, pbmc3k$predicted.id)
+```
+
+visualize in a heatmap 
+```{r}
+library(ComplexHeatmap)
+table(pbmc3k$transferred_labels, pbmc3k$predicted.id) %>%
+        as.matrix() %>%
+        scale() %>%
+        Heatmap(cluster_rows = FALSE, cluster_columns= FALSE, name= "scaled\ncell number")
+```
+
+
+### clustering and UMAP
+
+With the CCA embeddings, you can do clustering (k-means, hierarchical clustering etc) and UMAP by concatenating the cannoical variates from two datasets together.
+
+```{r}
+# Load required libraries for clustering and UMAP
+library(uwot)  # For UMAP
+library(cluster)  # For clustering algorithms (like k-means)
+
+# Combine canonical variates from both datasets 
+combined_variates <- rbind(canonical_variates_3k, canonical_variates_10k)
+combined_variates<- scale(combined_variates)
+
+# Step 1: Clustering (using k-means as an example)
+# Set the number of clusters (k)
+k <- 13  # Choose the number of clusters based on your data ( I am cheating as I know 13 celltypes in the dataset)
+
+set.seed(123)
+kmeans_result <- kmeans(combined_variates, centers = k)
+
+# Extract cluster labels
+cluster_labels <- kmeans_result$cluster
+
+# Step 2: UMAP Calculation
+# Compute UMAP on the canonical variates
+umap_results <- umap(combined_variates)
+
+# UMAP Results
+umap_data <- as.data.frame(umap_results)
+
+# Add cluster labels and data source to UMAP results for visualization
+umap_data$Cluster <- factor(cluster_labels)
+umap_data$dataset<- c(rep("3k", nrow(canonical_variates_3k)),
+                      rep("10k", nrow(canonical_variates_10k)))
+umap_data$celltype<- c(as.character(pbmc3k$transferred_labels),
+                       as.character(pbmc10k$celltype))
+
+table(umap_data$Cluster, umap_data$celltype) %>%
+        as.matrix() %>%
+        scale() %>%
+        Heatmap(cluster_rows = FALSE, cluster_columns= FALSE, name= "scaled\ncell number")
+
+
+```
+
+K-means works reasonably well. It mixes CD4 naive and CD8 naive together; pDC and Dendritic cells together. It split CD14+ monocytes into two different cluster 6 and 11. One can do many times of K-means and use the consensus as the clusters. e.g., [SC3: consensus clustering of single-cell RNA-seq data](https://www.nature.com/articles/nmeth.4236).
+
+### Datasets integration 
+
+Plot UMAP
+```{r}
+library(ggplot2)
+
+ggplot(umap_data, aes(x = V1, y = V2, color = dataset)) +
+  geom_point(size = 0.4) +
+  labs(title = "UMAP Projection of CCA Canonical Variates",
+       x = "UMAP 1",
+       y = "UMAP 2") +
+  theme_minimal() +
+  scale_color_discrete(name = "dataset") +
+        facet_wrap(~dataset)
+```
+
+
+We see those two datasets are aligned super well!
+```{r}
+ggplot(umap_data, aes(x = V1, y = V2, color = dataset)) +
+  geom_point(size = 0.4) +
+  labs(title = "UMAP Projection of CCA Canonical Variates",
+       x = "UMAP 1",
+       y = "UMAP 2") +
+  theme_minimal() +
+  scale_color_discrete(name = "dataset") 
+```
+
+Let's color the cells with celltype:
+```{r}
+# use https://oompa.r-forge.r-project.org/packages/Polychrome/polychrome.html for colors
+library(Polychrome)
+
+# length(unique(umap_data$celltype)) 
+# total 13 distinct cell types
+
+# remove the first white color
+colors_to_use<- kelly.colors(n=14)[-1] %>% unname()
+
+ggplot(umap_data, aes(x = V1, y = V2, color = celltype)) +
+  geom_point(size = 0.4) +
+  labs(title = "UMAP Projection of CCA Canonical Variates",
+       x = "UMAP 1",
+       y = "UMAP 2") +
+  theme_minimal() +
+        scale_color_manual(values = colors_to_use) +
+        guides(colour = guide_legend(override.aes = list(size=2))) # increase the dot size in the legend
+```
+
+### What if we do not do CCA integration?
+
+What if we do not use the CCA covariates for clustering? We can just concatenate 
+two seurat object together and go through the routine process:
+
+```{r}
+# add a metadata column so you know which dataset the cells are from 
+pbmc3k$sample<- "3k"
+pbmc10k$sample<- "10k"
+
+# combine two seurat objects together
+pbmc<- merge(pbmc3k, pbmc10k)
+
+pbmc<- pbmc %>% 
+  NormalizeData(normalization.method = "LogNormalize", scale.factor = 10000) %>%
+  FindVariableFeatures(selection.method = "vst", nfeatures = 5000) %>%
+  ScaleData() %>%
+  RunPCA(verbose = FALSE) %>%
+  FindNeighbors(dims = 1:30, verbose = FALSE) %>%
+  FindClusters(resolution = 0.5, verbose = FALSE) %>%
+  RunUMAP(dims = 1:30, verbose = FALSE)
+
+DimPlot(pbmc, label = TRUE, repel = TRUE, group.by= "sample") 
+```
+
+Without using `CCA`, you see the cells are separated by samples. The idea of data integration is to make the cells of the same cell type group together even they are
+from different datasets while cells of different cell types still separate from each other.
+
+### What CCA Achieves in Single-Cell Data:
+
+- Aligning Cell Embeddings: CCA produces canonical variates $u$ and $v$, which are lower-dimensional embeddings of the cells from the two datasets. These embeddings are aligned in such a way that the cells from both datasets are maximally correlated in this new space.
+
+- Identifying Shared Structure: By finding the common canonical directions, CCA captures the shared structure in gene expression between the two datasets, allowing cells with similar profiles across datasets to be aligned.
+
+### Comparison to PCA
+
+Unlike PCA, which focuses on capturing variance within a **single dataset**, `CCA` focuses on capturing correlation between two datasets. Both involve matrix decomposition, but while `PCA` decomposes a single covariance matrix, `CCA` involves solving for relationships between the covariance matrices of two datasets.
+
+To summarize:
+
+- PCA: Finds directions of maximum variance within a single dataset.
+- CCA: Finds directions of maximum covariance between two datasets.
+
+Happy Learning!
+
+Tommy aka. Crazyhottommy

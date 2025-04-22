@@ -1,0 +1,1501 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+<meta charset="utf-8" />
+<meta name="generator" content="pandoc" />
+<meta http-equiv="X-UA-Compatible" content="IE=EDGE" />
+
+
+
+<meta name="date" content="2025-04-21" />
+
+<title>How PCA projection and cell label transfer work in Seurat</title>
+
+<script src="site_libs/header-attrs-2.27/header-attrs.js"></script>
+<script src="site_libs/jquery-3.6.0/jquery-3.6.0.min.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="site_libs/bootstrap-3.3.5/css/cosmo.min.css" rel="stylesheet" />
+<script src="site_libs/bootstrap-3.3.5/js/bootstrap.min.js"></script>
+<script src="site_libs/bootstrap-3.3.5/shim/html5shiv.min.js"></script>
+<script src="site_libs/bootstrap-3.3.5/shim/respond.min.js"></script>
+<style>h1 {font-size: 34px;}
+       h1.title {font-size: 38px;}
+       h2 {font-size: 30px;}
+       h3 {font-size: 24px;}
+       h4 {font-size: 18px;}
+       h5 {font-size: 16px;}
+       h6 {font-size: 12px;}
+       code {color: inherit; background-color: rgba(0, 0, 0, 0.04);}
+       pre:not([class]) { background-color: white }</style>
+<script src="site_libs/jqueryui-1.13.2/jquery-ui.min.js"></script>
+<link href="site_libs/tocify-1.9.1/jquery.tocify.css" rel="stylesheet" />
+<script src="site_libs/tocify-1.9.1/jquery.tocify.js"></script>
+<script src="site_libs/navigation-1.1/tabsets.js"></script>
+<link href="site_libs/highlightjs-9.12.0/textmate.css" rel="stylesheet" />
+<script src="site_libs/highlightjs-9.12.0/highlight.js"></script>
+
+<link rel="icon" href="https://github.com/workflowr/workflowr-assets/raw/main/img/reproducible.png">
+<!-- Add a small amount of space between sections. -->
+<style type="text/css">
+div.section {
+  padding-top: 12px;
+}
+</style>
+
+
+
+<style type="text/css">
+  code{white-space: pre-wrap;}
+  span.smallcaps{font-variant: small-caps;}
+  span.underline{text-decoration: underline;}
+  div.column{display: inline-block; vertical-align: top; width: 50%;}
+  div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+  ul.task-list{list-style: none;}
+    </style>
+
+<style type="text/css">code{white-space: pre;}</style>
+<script type="text/javascript">
+if (window.hljs) {
+  hljs.configure({languages: []});
+  hljs.initHighlightingOnLoad();
+  if (document.readyState && document.readyState === "complete") {
+    window.setTimeout(function() { hljs.initHighlighting(); }, 0);
+  }
+}
+</script>
+
+
+
+
+
+
+
+
+
+<style type = "text/css">
+.main-container {
+  max-width: 940px;
+  margin-left: auto;
+  margin-right: auto;
+}
+img {
+  max-width:100%;
+}
+.tabbed-pane {
+  padding-top: 12px;
+}
+.html-widget {
+  margin-bottom: 20px;
+}
+button.code-folding-btn:focus {
+  outline: none;
+}
+summary {
+  display: list-item;
+}
+details > summary > p:only-child {
+  display: inline;
+}
+pre code {
+  padding: 0;
+}
+</style>
+
+
+<style type="text/css">
+.dropdown-submenu {
+  position: relative;
+}
+.dropdown-submenu>.dropdown-menu {
+  top: 0;
+  left: 100%;
+  margin-top: -6px;
+  margin-left: -1px;
+  border-radius: 0 6px 6px 6px;
+}
+.dropdown-submenu:hover>.dropdown-menu {
+  display: block;
+}
+.dropdown-submenu>a:after {
+  display: block;
+  content: " ";
+  float: right;
+  width: 0;
+  height: 0;
+  border-color: transparent;
+  border-style: solid;
+  border-width: 5px 0 5px 5px;
+  border-left-color: #cccccc;
+  margin-top: 5px;
+  margin-right: -10px;
+}
+.dropdown-submenu:hover>a:after {
+  border-left-color: #adb5bd;
+}
+.dropdown-submenu.pull-left {
+  float: none;
+}
+.dropdown-submenu.pull-left>.dropdown-menu {
+  left: -100%;
+  margin-left: 10px;
+  border-radius: 6px 0 6px 6px;
+}
+</style>
+
+<script type="text/javascript">
+// manage active state of menu based on current page
+$(document).ready(function () {
+  // active menu anchor
+  href = window.location.pathname
+  href = href.substr(href.lastIndexOf('/') + 1)
+  if (href === "")
+    href = "index.html";
+  var menuAnchor = $('a[href="' + href + '"]');
+
+  // mark the anchor link active (and if it's in a dropdown, also mark that active)
+  var dropdown = menuAnchor.closest('li.dropdown');
+  if (window.bootstrap) { // Bootstrap 4+
+    menuAnchor.addClass('active');
+    dropdown.find('> .dropdown-toggle').addClass('active');
+  } else { // Bootstrap 3
+    menuAnchor.parent().addClass('active');
+    dropdown.addClass('active');
+  }
+
+  // Navbar adjustments
+  var navHeight = $(".navbar").first().height() + 15;
+  var style = document.createElement('style');
+  var pt = "padding-top: " + navHeight + "px; ";
+  var mt = "margin-top: -" + navHeight + "px; ";
+  var css = "";
+  // offset scroll position for anchor links (for fixed navbar)
+  for (var i = 1; i <= 6; i++) {
+    css += ".section h" + i + "{ " + pt + mt + "}\n";
+  }
+  style.innerHTML = "body {" + pt + "padding-bottom: 40px; }\n" + css;
+  document.head.appendChild(style);
+});
+</script>
+
+<!-- tabsets -->
+
+<style type="text/css">
+.tabset-dropdown > .nav-tabs {
+  display: inline-table;
+  max-height: 500px;
+  min-height: 44px;
+  overflow-y: auto;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.tabset-dropdown > .nav-tabs > li.active:before, .tabset-dropdown > .nav-tabs.nav-tabs-open:before {
+  content: "\e259";
+  font-family: 'Glyphicons Halflings';
+  display: inline-block;
+  padding: 10px;
+  border-right: 1px solid #ddd;
+}
+
+.tabset-dropdown > .nav-tabs.nav-tabs-open > li.active:before {
+  content: "\e258";
+  font-family: 'Glyphicons Halflings';
+  border: none;
+}
+
+.tabset-dropdown > .nav-tabs > li.active {
+  display: block;
+}
+
+.tabset-dropdown > .nav-tabs > li > a,
+.tabset-dropdown > .nav-tabs > li > a:focus,
+.tabset-dropdown > .nav-tabs > li > a:hover {
+  border: none;
+  display: inline-block;
+  border-radius: 4px;
+  background-color: transparent;
+}
+
+.tabset-dropdown > .nav-tabs.nav-tabs-open > li {
+  display: block;
+  float: none;
+}
+
+.tabset-dropdown > .nav-tabs > li {
+  display: none;
+}
+</style>
+
+<!-- code folding -->
+
+
+
+<style type="text/css">
+
+#TOC {
+  margin: 25px 0px 20px 0px;
+}
+@media (max-width: 768px) {
+#TOC {
+  position: relative;
+  width: 100%;
+}
+}
+
+@media print {
+.toc-content {
+  /* see https://github.com/w3c/csswg-drafts/issues/4434 */
+  float: right;
+}
+}
+
+.toc-content {
+  padding-left: 30px;
+  padding-right: 40px;
+}
+
+div.main-container {
+  max-width: 1200px;
+}
+
+div.tocify {
+  width: 20%;
+  max-width: 260px;
+  max-height: 85%;
+}
+
+@media (min-width: 768px) and (max-width: 991px) {
+  div.tocify {
+    width: 25%;
+  }
+}
+
+@media (max-width: 767px) {
+  div.tocify {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+.tocify ul, .tocify li {
+  line-height: 20px;
+}
+
+.tocify-subheader .tocify-item {
+  font-size: 0.90em;
+}
+
+.tocify .list-group-item {
+  border-radius: 0px;
+}
+
+
+</style>
+
+
+
+</head>
+
+<body>
+
+
+<div class="container-fluid main-container">
+
+
+<!-- setup 3col/9col grid for toc_float and main content  -->
+<div class="row">
+<div class="col-xs-12 col-sm-4 col-md-3">
+<div id="TOC" class="tocify">
+</div>
+</div>
+
+<div class="toc-content col-xs-12 col-sm-8 col-md-9">
+
+
+
+
+<div class="navbar navbar-default  navbar-fixed-top" role="navigation">
+  <div class="container">
+    <div class="navbar-header">
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-bs-toggle="collapse" data-target="#navbar" data-bs-target="#navbar">
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      <a class="navbar-brand" href="index.html">single-cell-RNAseq-PCA-CCA-cell-annotation</a>
+    </div>
+    <div id="navbar" class="navbar-collapse collapse">
+      <ul class="nav navbar-nav">
+        <li>
+  <a href="index.html">Home</a>
+</li>
+<li>
+  <a href="about.html">About</a>
+</li>
+<li>
+  <a href="license.html">License</a>
+</li>
+      </ul>
+      <ul class="nav navbar-nav navbar-right">
+        
+      </ul>
+    </div><!--/.nav-collapse -->
+  </div><!--/.container -->
+</div><!--/.navbar -->
+
+<div id="header">
+
+
+
+<h1 class="title toc-ignore">How PCA projection and cell label transfer
+work in Seurat</h1>
+<h4 class="date">2025-04-21</h4>
+
+</div>
+
+
+<p>
+<button type="button" class="btn btn-default btn-workflowr btn-workflowr-report" data-toggle="collapse" data-target="#workflowr-report">
+<span class="glyphicon glyphicon-list" aria-hidden="true"></span>
+workflowr <span class="glyphicon glyphicon-exclamation-sign text-danger"
+aria-hidden="true"></span>
+</button>
+</p>
+<div id="workflowr-report" class="collapse">
+<ul class="nav nav-tabs">
+<li class="active">
+<a data-toggle="tab" href="#summary">Summary</a>
+</li>
+<li>
+<a data-toggle="tab" href="#checks"> Checks <span
+class="glyphicon glyphicon-exclamation-sign text-danger"
+aria-hidden="true"></span> </a>
+</li>
+<li>
+<a data-toggle="tab" href="#versions">Past versions</a>
+</li>
+</ul>
+<div class="tab-content">
+<div id="summary" class="tab-pane fade in active">
+<p>
+<strong>Last updated:</strong> 2025-04-21
+</p>
+<p>
+<strong>Checks:</strong> <span
+class="glyphicon glyphicon-ok text-success" aria-hidden="true"></span> 6
+<span class="glyphicon glyphicon-exclamation-sign text-danger"
+aria-hidden="true"></span> 1
+</p>
+<p>
+<strong>Knit directory:</strong>
+<code>single-cell-RNAseq-PCA-CCA-cell-annotation/</code> <span
+class="glyphicon glyphicon-question-sign" aria-hidden="true"
+title="This is the local directory in which the code in this file was executed.">
+</span>
+</p>
+<p>
+This reproducible <a href="https://rmarkdown.rstudio.com">R Markdown</a>
+analysis was created with <a
+  href="https://github.com/workflowr/workflowr">workflowr</a> (version
+1.7.1). The <em>Checks</em> tab describes the reproducibility checks
+that were applied when the results were created. The <em>Past
+versions</em> tab lists the development history.
+</p>
+<hr>
+</div>
+<div id="checks" class="tab-pane fade">
+<div id="workflowr-checks" class="panel-group">
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongRMarkdownfilestronguncommittedchanges">
+<span class="glyphicon glyphicon-exclamation-sign text-danger"
+aria-hidden="true"></span> <strong>R Markdown file:</strong> uncommitted
+changes </a>
+</p>
+</div>
+<div id="strongRMarkdownfilestronguncommittedchanges"
+class="panel-collapse collapse">
+<div class="panel-body">
+<p>The R Markdown is untracked by Git. To know which version of the R
+Markdown file created these results, you’ll want to first commit it to
+the Git repo. If you’re still working on the analysis, you can ignore
+this warning. When you’re finished, you can run
+<code>wflow_publish</code> to commit the R Markdown file and build the
+HTML.</p>
+</div>
+</div>
+</div>
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongEnvironmentstrongempty">
+<span class="glyphicon glyphicon-ok text-success"
+aria-hidden="true"></span> <strong>Environment:</strong> empty </a>
+</p>
+</div>
+<div id="strongEnvironmentstrongempty" class="panel-collapse collapse">
+<div class="panel-body">
+<p>Great job! The global environment was empty. Objects defined in the
+global environment can affect the analysis in your R Markdown file in
+unknown ways. For reproduciblity it’s best to always run the code in an
+empty environment.</p>
+</div>
+</div>
+</div>
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongSeedstrongcodesetseed20250421code">
+<span class="glyphicon glyphicon-ok text-success"
+aria-hidden="true"></span> <strong>Seed:</strong>
+<code>set.seed(20250421)</code> </a>
+</p>
+</div>
+<div id="strongSeedstrongcodesetseed20250421code"
+class="panel-collapse collapse">
+<div class="panel-body">
+<p>The command <code>set.seed(20250421)</code> was run prior to running
+the code in the R Markdown file. Setting a seed ensures that any results
+that rely on randomness, e.g. subsampling or permutations, are
+reproducible.</p>
+</div>
+</div>
+</div>
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongSessioninformationstrongrecorded">
+<span class="glyphicon glyphicon-ok text-success"
+aria-hidden="true"></span> <strong>Session information:</strong>
+recorded </a>
+</p>
+</div>
+<div id="strongSessioninformationstrongrecorded"
+class="panel-collapse collapse">
+<div class="panel-body">
+<p>Great job! Recording the operating system, R version, and package
+versions is critical for reproducibility.</p>
+</div>
+</div>
+</div>
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongCachestrongnone">
+<span class="glyphicon glyphicon-ok text-success"
+aria-hidden="true"></span> <strong>Cache:</strong> none </a>
+</p>
+</div>
+<div id="strongCachestrongnone" class="panel-collapse collapse">
+<div class="panel-body">
+<p>Nice! There were no cached chunks for this analysis, so you can be
+confident that you successfully produced the results during this
+run.</p>
+</div>
+</div>
+</div>
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongFilepathsstrongrelative">
+<span class="glyphicon glyphicon-ok text-success"
+aria-hidden="true"></span> <strong>File paths:</strong> relative </a>
+</p>
+</div>
+<div id="strongFilepathsstrongrelative" class="panel-collapse collapse">
+<div class="panel-body">
+<p>Great job! Using relative paths to the files within your workflowr
+project makes it easier to run your code on other machines.</p>
+</div>
+</div>
+</div>
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongRepositoryversionstrongahrefhttpsgithubcomcrazyhottommysinglecellRNAseqPCACCAcellannotationtree2facd4835b9b926dcdb1089c188272ffb05d49fatargetblank2facd48a">
+<span class="glyphicon glyphicon-ok text-success"
+aria-hidden="true"></span> <strong>Repository version:</strong>
+<a href="https://github.com/crazyhottommy/single-cell-RNAseq-PCA-CCA-cell-annotation/tree/2facd4835b9b926dcdb1089c188272ffb05d49fa" target="_blank">2facd48</a>
+</a>
+</p>
+</div>
+<div
+id="strongRepositoryversionstrongahrefhttpsgithubcomcrazyhottommysinglecellRNAseqPCACCAcellannotationtree2facd4835b9b926dcdb1089c188272ffb05d49fatargetblank2facd48a"
+class="panel-collapse collapse">
+<div class="panel-body">
+<p>
+Great! You are using Git for version control. Tracking code development
+and connecting the code version to the results is critical for
+reproducibility.
+</p>
+<p>
+The results in this page were generated with repository version
+<a href="https://github.com/crazyhottommy/single-cell-RNAseq-PCA-CCA-cell-annotation/tree/2facd4835b9b926dcdb1089c188272ffb05d49fa" target="_blank">2facd48</a>.
+See the <em>Past versions</em> tab to see a history of the changes made
+to the R Markdown and HTML files.
+</p>
+<p>
+Note that you need to be careful to ensure that all relevant files for
+the analysis have been committed to Git prior to generating the results
+(you can use <code>wflow_publish</code> or
+<code>wflow_git_commit</code>). workflowr only checks the R Markdown
+file, but you know if there are other scripts or data files that it
+depends on. Below is the status of the Git repository when the results
+were generated:
+</p>
+<pre><code>
+Ignored files:
+    Ignored:    .Rhistory
+    Ignored:    .Rproj.user/
+
+Untracked files:
+    Untracked:  analysis/how-seurat-cca-label-transfer.Rmd
+    Untracked:  analysis/how-seurat-pca-label-transfer.Rmd
+
+Unstaged changes:
+    Modified:   analysis/index.Rmd
+    Modified:   single-cell-RNAseq-PCA-CCA-cell-annotation.Rproj
+
+</code></pre>
+<p>
+Note that any generated files, e.g. HTML, png, CSS, etc., are not
+included in this status report because it is ok for generated content to
+have uncommitted changes.
+</p>
+</div>
+</div>
+</div>
+</div>
+<hr>
+</div>
+<div id="versions" class="tab-pane fade">
+<p>
+There are no past versions. Publish this analysis with
+<code>wflow_publish()</code> to start tracking its development.
+</p>
+<hr>
+</div>
+</div>
+</div>
+<p><strong>To not miss a post like this, sign up for my <a
+href="https://divingintogeneticsandgenomics.ck.page/profile">newsletter</a>
+to learn computational biology and bioinformatics.</strong></p>
+<div id="understand-the-example-datasets" class="section level3">
+<h3>Understand the example datasets</h3>
+<p>We will use PBMC3k and PBMC10k data. We will project the PBMC3k data
+to the PBMC10k data and get the labels</p>
+<pre class="r"><code>library(Seurat)
+library(Matrix)
+library(irlba)  # For PCA
+library(RcppAnnoy)  # For fast nearest neighbor search
+library(dplyr)</code></pre>
+<pre class="r"><code># Assuming the PBMC datasets (3k and 10k) are already normalized
+# and represented as sparse matrices
+# devtools::install_github(&#39;satijalab/seurat-data&#39;)
+library(SeuratData)
+#AvailableData()
+#InstallData(&quot;pbmc3k&quot;)
+
+pbmc3k&lt;-UpdateSeuratObject(pbmc3k)
+pbmc3k@meta.data %&gt;% head()</code></pre>
+<pre><code>#&gt;                orig.ident nCount_RNA nFeature_RNA seurat_annotations
+#&gt; AAACATACAACCAC     pbmc3k       2419          779       Memory CD4 T
+#&gt; AAACATTGAGCTAC     pbmc3k       4903         1352                  B
+#&gt; AAACATTGATCAGC     pbmc3k       3147         1129       Memory CD4 T
+#&gt; AAACCGTGCTTCCG     pbmc3k       2639          960         CD14+ Mono
+#&gt; AAACCGTGTATGCG     pbmc3k        980          521                 NK
+#&gt; AAACGCACTGGTAC     pbmc3k       2163          781       Memory CD4 T</code></pre>
+<pre class="r"><code># routine processing
+pbmc3k&lt;- pbmc3k %&gt;% 
+  NormalizeData(normalization.method = &quot;LogNormalize&quot;, scale.factor = 10000) %&gt;%
+  FindVariableFeatures(selection.method = &quot;vst&quot;, nfeatures = 3000) %&gt;%
+  ScaleData() %&gt;%
+  RunPCA(verbose = FALSE) %&gt;%
+  FindNeighbors(dims = 1:10, verbose = FALSE) %&gt;%
+  FindClusters(resolution = 0.5, verbose = FALSE) %&gt;%
+  RunUMAP(dims = 1:10, verbose = FALSE)</code></pre>
+<p>Get an idea of how the pbmc3k data look like:</p>
+<pre class="r"><code>p1&lt;- DimPlot(pbmc3k, reduction = &quot;umap&quot;, label = TRUE, group.by = 
+                        &quot;RNA_snn_res.0.5&quot;)
+
+p2&lt;- DimPlot(pbmc3k, reduction = &quot;umap&quot;, label = TRUE, group.by = &quot;seurat_annotations&quot;, label.size = 3)
+
+p1 + p2</code></pre>
+<p><img src="figure/how-seurat-pca-label-transfer.Rmd/unnamed-chunk-4-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>How the pbmc10k data look like:</p>
+<pre class="r"><code># download it here curl -Lo pbmc_10k_v3.rds https://www.dropbox.com/s/3f3p5nxrn5b3y4y/pbmc_10k_v3.rds?dl=1 
+
+pbmc10k&lt;- readRDS(&quot;~/blog_data/pbmc_10k_v3.rds&quot;)
+pbmc10k&lt;-UpdateSeuratObject(pbmc10k)
+pbmc10k@meta.data %&gt;% head()</code></pre>
+<pre><code>#&gt;                        orig.ident nCount_RNA nFeature_RNA    observed simulated
+#&gt; rna_AAACCCAAGCGCCCAT-1    10x_RNA       2204         1087 0.035812672 0.4382022
+#&gt; rna_AAACCCACAGAGTTGG-1    10x_RNA       5884         1836 0.019227034 0.1017964
+#&gt; rna_AAACCCACAGGTATGG-1    10x_RNA       5530         2216 0.005447865 0.1392801
+#&gt; rna_AAACCCACATAGTCAC-1    10x_RNA       5106         1615 0.014276003 0.4949495
+#&gt; rna_AAACCCACATCCAATG-1    10x_RNA       4572         1800 0.053857351 0.1392801
+#&gt; rna_AAACCCAGTGGCTACC-1    10x_RNA       6702         1965 0.056603774 0.3554328
+#&gt;                        percent.mito RNA_snn_res.0.4        celltype
+#&gt; rna_AAACCCAAGCGCCCAT-1   0.02359347               1      CD4 Memory
+#&gt; rna_AAACCCACAGAGTTGG-1   0.10757988               0 CD14+ Monocytes
+#&gt; rna_AAACCCACAGGTATGG-1   0.07848101               5         NK cell
+#&gt; rna_AAACCCACATAGTCAC-1   0.10830396               3      pre-B cell
+#&gt; rna_AAACCCACATCCAATG-1   0.08989501               5         NK cell
+#&gt; rna_AAACCCAGTGGCTACC-1   0.06326470               1      CD4 Memory</code></pre>
+<pre class="r"><code>DimPlot(pbmc10k, label = TRUE, repel = TRUE) + NoLegend()</code></pre>
+<p><img src="figure/how-seurat-pca-label-transfer.Rmd/unnamed-chunk-5-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>The pbmc3k data and pbmc10k data have different number of gene names,
+let’s subset to the common genes.</p>
+<p>the pbmc3k dataset comes with annotations (the seurat_annotations
+column). In this experiment, we will pretend we do not have it and use
+the 10k pbmc data to transfer the labels. Also the 10kpbmc cell labels
+are a little more granular.</p>
+<pre class="r"><code>pbmc3k_genes &lt;- rownames(pbmc3k)
+pbmc10k_genes &lt;- rownames(pbmc10k)
+
+# Find common genes
+common_genes &lt;- intersect(pbmc3k_genes, pbmc10k_genes)
+
+
+pbmc3k &lt;- subset(pbmc3k, features = common_genes)
+pbmc10k &lt;- subset(pbmc10k, features = common_genes)
+
+all.equal(rownames(pbmc3k), rownames(pbmc10k))</code></pre>
+<pre><code>#&gt; [1] TRUE</code></pre>
+</div>
+<div id="understand-pcasvd" class="section level3">
+<h3>Understand PCA/SVD</h3>
+<p>For Singular Value Decomposition (SVD), the decomposition of an <span
+class="math inline">\(𝑋\)</span> matrix (with dimensions <span
+class="math inline">\(n\times p\)</span>)</p>
+<ul>
+<li><span class="math inline">\(n\)</span> is the number of
+cells/samples and</li>
+<li><span class="math inline">\(p\)</span> is the number of
+genes/features) is as follows:</li>
+</ul>
+<p><span class="math inline">\(X = U D V^T\)</span></p>
+<p>Components of SVD:</p>
+<ul>
+<li><p><span class="math inline">\(U\)</span> is a <span
+class="math inline">\(n \times n\)</span> orthogonal matrix. It contains
+the left singular vectors (associated with the rows of <span
+class="math inline">\(X\)</span> i.e., cells/samples).</p></li>
+<li><p><span class="math inline">\(V\)</span> is a <span
+class="math inline">\(p \times p\)</span> orthogonal matrix. It contains
+the right singular vectors (associated with the columns of <span
+class="math inline">\(X\)</span> i.e., genes/features).</p></li>
+<li><p><span class="math inline">\(D\)</span> is a <span
+class="math inline">\(n \times p\)</span> diagonal matrix (with
+non-negative real numbers on the diagonal). The diagonal elements are
+the singular values of <span class="math inline">\(X\)</span> which
+indicate the variance captured by each component.</p></li>
+</ul>
+<p><strong>Principal Components (PCs):</strong></p>
+<p>The principal components (PCs) are given by: <span
+class="math inline">\(Z = UD\)</span></p>
+<p>This matrix has the dimensions <span class="math inline">\(n\times
+r\)</span> (where <span class="math inline">\(r\)</span> is the rank of
+<span class="math inline">\(X\)</span>)</p>
+<p><span class="math inline">\(Z\)</span> contains the projection of
+your data onto the principal component space.</p>
+<p>SVD is:</p>
+<p><span class="math inline">\(X = U D V^T\)</span></p>
+<p>We <span class="math inline">\(\times V\)</span> on both sides of the
+<code>SVD</code> equation:</p>
+<p><span class="math inline">\(XV = U DV^TV\)</span></p>
+<p>Since the <code>V</code> matrix is orthonormal, <span
+class="math inline">\(V \times V^T = I\)</span>. <span
+class="math inline">\(I\)</span> is the identity matrix. The equation
+becomes:</p>
+<p><span class="math inline">\(XV = UD\)</span></p>
+<p>So, alternatively, you can express the PCs as: <span
+class="math inline">\(Z = XV\)</span></p>
+<p>In single-cell RNAseq analysis, the <span
+class="math inline">\(Z\)</span> matrix is used to construct the
+k-nearest neighbor graph and clusters are detected using Louvain method
+in the graph. One can use any other clustering algorithms to cluster the
+cells (e.g., k-means, hierarchical clustering) in this PC space.</p>
+<p>I really wish I learned linear algebra better during college:) Note,
+you can take <a
+href="https://ocw.mit.edu/courses/18-06-linear-algebra-spring-2010/">MIT1806</a>,
+which is a great course for linear algebra.</p>
+<p>Let’s calculate the PCA from scratch with <code>irlba</code> for big
+matrix. use built-in <code>svd</code> if the matrix is small.</p>
+<pre class="r"><code>#install.packages(&quot;irlba&quot;)
+library(irlba)
+# use the scaled matrix 
+pbmc10k_scaled &lt;- pbmc10k@assays$RNA@scale.data
+
+dim(pbmc10k_scaled)</code></pre>
+<pre><code>#&gt; [1] 2068 9432</code></pre>
+<pre class="r"><code># Perform PCA using irlba (for large matrices). We transpose it first to gene x sample
+pca_10k &lt;- irlba(t(pbmc10k_scaled), nv = 100)  # Keep 100 PCs. The orginal seurat object kept 100 PCs</code></pre>
+<p>read my previous blog post on some details of PCA steps within Seurat
+<a
+href="https://divingintogeneticsandgenomics.com/post/permute-test-for-pca-components/"
+class="uri">https://divingintogeneticsandgenomics.com/post/permute-test-for-pca-components/</a></p>
+<p>By default, <code>RunPCA</code> computes the PCA on the cell (n) x
+gene (p) matrix. One thing to note is that in linear algebra, a matrix
+is coded as n (rows are observations) X p (columns are features). That’s
+why by default, the gene x cell original matrix is transposed first to
+cell x gene:
+<code>irlba(A = t(x = data.use), nv = pcs.compute, ...)</code>. After
+<code>irlba</code>, the <code>v</code> matrix is the gene loadings, the
+<code>u</code> matrix is the cell embeddings.</p>
+<p>This is the source code of <code>RunPCA</code> from
+<code>Seurat</code>:</p>
+<pre class="r"><code>pcs.compute &lt;- min(pcs.compute, nrow(x = data.use)-1)
+pca.results &lt;- irlba(A = t(x = data.use), nv = pcs.compute, ...)
+
+gene.loadings &lt;- pca.results$v
+
+sdev &lt;- pca.results$d/sqrt(max(1, ncol(data.use) - 1))
+
+if(weight.by.var){
+      cell.embeddings &lt;- pca.results$u %*% diag(pca.results$d)
+    } else {
+      cell.embeddings &lt;- pca.results$u
+    }
+
+rownames(x = gene.loadings) &lt;- rownames(x = data.use)
+colnames(x = gene.loadings) &lt;- paste0(reduction.key, 1:pcs.compute)
+rownames(x = cell.embeddings) &lt;- colnames(x = data.use)
+colnames(x = cell.embeddings) &lt;- colnames(x = gene.loadings)</code></pre>
+<p>Note, the diagonal matrix <span class="math inline">\(D\)</span> in
+<code>svd</code>/<code>irlba</code> output in <code>R</code> is the
+<code>d</code> vector for the diagonal values, and you convert it to a
+matrix by <code>diag(d)</code>.</p>
+<pre class="r"><code># get the gene loadings (V matrix). 
+gene_loadings_10k &lt;- pca_10k$v  # Gene loadings (features/genes in rows, PCs in columns)
+dim(gene_loadings_10k)</code></pre>
+<pre><code>#&gt; [1] 2068  100</code></pre>
+<pre class="r"><code>rownames(gene_loadings_10k) &lt;- rownames(pbmc10k_scaled)
+colnames(gene_loadings_10k) &lt;- paste0(&quot;PC&quot;, 1:100)
+# 2068 most variable genes (after subsetting the common genes with the pbmc3k data)
+# ideally, we should re-run FindVariableFeatures, but I am skipping it
+VariableFeatures(pbmc10k) %&gt;% length()</code></pre>
+<pre><code>#&gt; [1] 2068</code></pre>
+<pre class="r"><code># Get PCA embeddings/cell embeddings (U matrix * D matrix) 
+cell_embeddings_10k &lt;- pca_10k$u %*% diag(pca_10k$d)  # Cell embeddings (10k cells in rows)
+dim(cell_embeddings_10k)</code></pre>
+<pre><code>#&gt; [1] 9432  100</code></pre>
+<pre class="r"><code>rownames(cell_embeddings_10k) &lt;- colnames(pbmc10k_scaled)
+colnames(cell_embeddings_10k) &lt;- colnames(gene_loadings_10k)
+
+cell_embeddings_10k[1:5, 1:10]</code></pre>
+<pre><code>#&gt;                               PC1        PC2       PC3         PC4       PC5
+#&gt; rna_AAACCCAAGCGCCCAT-1  10.403049   5.696715 -3.163544 -0.09967979  1.671379
+#&gt; rna_AAACCCACAGAGTTGG-1 -16.407637   1.541569 -4.664094 -1.19047314 -7.783903
+#&gt; rna_AAACCCACAGGTATGG-1   8.260527  14.882676 20.279862 -3.38568692 -3.978372
+#&gt; rna_AAACCCACATAGTCAC-1   9.943605 -17.397959  3.370954 -0.37872376 -2.409626
+#&gt; rna_AAACCCACATCCAATG-1  10.418157  10.678506 13.450984 -2.11710310 -2.893075
+#&gt;                                PC6        PC7         PC8       PC9       PC10
+#&gt; rna_AAACCCAAGCGCCCAT-1  1.58299300  6.2184955  0.42955410  6.163026 -1.1548215
+#&gt; rna_AAACCCACAGAGTTGG-1 -0.03877799 -4.9201975  5.97044789  2.240565 -1.5349458
+#&gt; rna_AAACCCACAGGTATGG-1 -2.54951081 -5.5834799 -5.08844441  1.729374 -2.7080737
+#&gt; rna_AAACCCACATAGTCAC-1 -2.79861360 -0.4920498  1.06599051 -1.454068  2.1049640
+#&gt; rna_AAACCCACATCCAATG-1 -2.34159998 -0.5451218 -0.09535381 -1.472860 -0.9710287</code></pre>
+<p>center the 3k pbmc data with the 10k gene means and scale:</p>
+<pre class="r"><code>pbmc3k_normalized &lt;- pbmc3k@assays$RNA$data
+
+# Center the 3k PBMC dataset based on 10k dataset&#39;s gene means
+pbmc3k_scaled &lt;- scale(t(pbmc3k_normalized), 
+                       center = rowMeans(pbmc10k@assays$RNA$data), 
+                       scale = TRUE)</code></pre>
+<p>Centering the transposed 3k PBMC dataset based on the 10k dataset’s
+gene means is an important step in the process of projecting one dataset
+onto another, particularly in single-cell RNA-seq analysis for label
+transfer. Here are the main reasons why this step is necessary:</p>
+<ol style="list-style-type: decimal">
+<li><p>Aligning Data Distributions: Centering the 3k dataset using the
+10k dataset’s means ensures both datasets are aligned, reducing biases
+from differences in gene expression profiles.</p></li>
+<li><p>Ensuring Consistency: If the datasets come from different
+conditions, centering standardizes them, making them more
+comparable.</p></li>
+<li><p>Variance Representation: PCA is sensitive to the data’s mean;
+centering the 3k dataset with the 10k’s means ensures the variance is
+accurately captured by the principal components.</p></li>
+<li><p>Improving Projection Accuracy: Proper centering improves
+projection accuracy and enhances the label transfer process by focusing
+on biological variation instead of technical noise.</p></li>
+</ol>
+<pre class="r"><code>dim(pbmc3k_scaled)</code></pre>
+<pre><code>#&gt; [1]  2700 11774</code></pre>
+<pre class="r"><code># subset the same genes for the scaled 
+pbmc3k_scaled&lt;- pbmc3k_scaled[, rownames(pbmc10k_scaled)]
+
+dim(pbmc3k_scaled)</code></pre>
+<pre><code>#&gt; [1] 2700 2068</code></pre>
+</div>
+<div id="project-the-3k-cells-onto-the-pca-space-of-10k-dataset"
+class="section level3">
+<h3>Project the 3k cells onto the PCA space of 10K dataset</h3>
+<p>Now, we are using the <span class="math inline">\(U = XV\)</span>
+formula. The expression matrix is the pbmc3k scaled matrix and the
+<strong><span class="math inline">\(V\)</span> matrix is from the 10k
+pbmc data</strong>.</p>
+<pre class="r"><code>library(ggplot2)
+cell_embeddings_3k &lt;- as.matrix(pbmc3k_scaled) %*% gene_loadings_10k
+
+cell_embeddings_3k[1:5, 1:5]</code></pre>
+<pre><code>#&gt;                      PC1         PC2        PC3        PC4       PC5
+#&gt; AAACATACAACCAC 14.059153   3.5956611 -2.5969722 -0.9823900  1.446572
+#&gt; AAACATTGAGCTAC 10.120213 -10.7275385  3.5977444 -0.4405952  0.890632
+#&gt; AAACATTGATCAGC 12.226727   4.5484269 -3.9300445 -0.3233310  2.735518
+#&gt; AAACCGTGCTTCCG -2.538137   0.2757831  0.3029575  0.1371588  7.311531
+#&gt; AAACCGTGTATGCG 14.332570   6.5377602  9.7189625 -3.3478680 -2.428808</code></pre>
+<p>We can plot the 3K pmbc cells in the 10k pmbc PCA space:</p>
+<pre class="r"><code>all.equal(rownames(cell_embeddings_3k), rownames(pbmc3k@meta.data))</code></pre>
+<pre><code>#&gt; [1] TRUE</code></pre>
+<pre class="r"><code>cbind(cell_embeddings_3k, pbmc3k@meta.data) %&gt;%
+        ggplot(aes(x=PC1, y=PC2)) +
+        geom_point(aes(color = seurat_annotations)) +
+        theme_classic(base_size = 14)</code></pre>
+<p><img src="figure/how-seurat-pca-label-transfer.Rmd/unnamed-chunk-13-1.png" width="672" style="display: block; margin: auto;" /></p>
+<pre class="r"><code># PCA space based on pbmc3k its own 
+DimPlot(pbmc3k, reduction = &quot;pca&quot;, group.by = &quot;seurat_annotations&quot;, 
+        label = TRUE) +
+        NoLegend()</code></pre>
+<p><img src="figure/how-seurat-pca-label-transfer.Rmd/unnamed-chunk-13-2.png" width="672" style="display: block; margin: auto;" />
+We see the cells roughly split into three major “islands”: B cells,
+myeloid cells (CD14/CD16+ monocytes) and the T cell/NK cells.</p>
+</div>
+<div id="identification-of-the-k-nearest-neighbors"
+class="section level3">
+<h3>identification of the k nearest neighbors</h3>
+<p>Now that the 3k pbmc cell ebmeddings are projected to the 10k pbmc
+PCA space. We can find the k nearest neighbors in the 10k dataset to
+every cell in the 3k dataset.</p>
+<p>We are using <code>AnnoyAngular</code> which calculates the cosine
+distance in the PCA space.</p>
+<pre class="r"><code># Use the Annoy algorithm to find nearest neighbors between 3k and 10k datasets
+n_neighbors &lt;- 30  # Number of nearest neighbors to find k =30
+
+# Create Annoy index for 10k PBMC dataset
+annoy_index &lt;- new(AnnoyAngular, ncol(cell_embeddings_10k)) ##use cosine distance Angular
+for (i in 1:nrow(cell_embeddings_10k)) {
+  annoy_index$addItem(i - 1, cell_embeddings_10k[i, ])
+}
+annoy_index$build(10)  # Build the index with 10 trees
+
+# Find nearest neighbors for each cell in 3k dataset
+nn_indices &lt;- t(sapply(1:nrow(cell_embeddings_3k), function(i) {
+  annoy_index$getNNsByVector(cell_embeddings_3k[i, ], n_neighbors)
+}))
+
+# nn_indices gives you the indices of nearest neighbors in the 10k PBMC dataset
+# the rows are cells from 3k dataset, columns are the 30 nearest cells in the 10k dataset
+dim(nn_indices)</code></pre>
+<pre><code>#&gt; [1] 2700   30</code></pre>
+<pre class="r"><code>head(nn_indices)</code></pre>
+<pre><code>#&gt;      [,1] [,2] [,3] [,4] [,5] [,6] [,7] [,8] [,9] [,10] [,11] [,12] [,13] [,14]
+#&gt; [1,] 8624 4993  275 8358 6192 3536 2828  457 7173   555  9058  5383  6643  6775
+#&gt; [2,] 8528  100 8576 6437 1351 4501 1822 4127 1407  3173  5457  5817  4931    46
+#&gt; [3,] 7950  754 5057  696 4787 3587 1578 3015   58  8249  2685  1371  8246  5740
+#&gt; [4,]  108 8617 4995 9206 8431 6035 6989  426 7892  3620  1215  6495  3897  6036
+#&gt; [5,]  452 8114 3868 5414 7884 1579 7633 4572 5017  3612  9159  8211  5712  1922
+#&gt; [6,] 4219 1815 6417 7895 8122 2080 6141 1256 3354  6037  6523  7299  7950  8519
+#&gt;      [,15] [,16] [,17] [,18] [,19] [,20] [,21] [,22] [,23] [,24] [,25] [,26]
+#&gt; [1,]  3558  8707  3529  1275  5868  4073  3811  1393  3855  5616  2381  7941
+#&gt; [2,]  6365  7079  7457  7123  8021  2107  2588  6516  7167  8056  5376  6102
+#&gt; [3,]   887  5788  5601  7588  1478  8934  6248  2030  7882  1239  2405  4230
+#&gt; [4,]  9132  3516  8077  9192  3507  5605  8443  6134  4658  7512  6104  1225
+#&gt; [5,]  2253  2091  1261  7797  4482  8450  7986  8537  8812  4113  1024  6570
+#&gt; [6,]  4808   949  8615  9422   696  5938  8860  8239  1319  2800  5870  4782
+#&gt;      [,27] [,28] [,29] [,30]
+#&gt; [1,]  3688  2263  9398  7010
+#&gt; [2,]  7311  8774   973  1743
+#&gt; [3,]  8239  1484  4816  4560
+#&gt; [4,]  1241  6221  3313  4065
+#&gt; [5,]  8183  9221  3822  5012
+#&gt; [6,]  3566  6276  3166  1578</code></pre>
+</div>
+<div id="label-transfer-based-on-the-nearest-neighbors"
+class="section level3">
+<h3>Label transfer based on the nearest neighbors</h3>
+<pre class="r"><code>labels_10k&lt;- as.character(pbmc10k$celltype)
+# Transfer labels based on majority vote from nearest neighbors
+transfer_labels &lt;- apply(nn_indices, 1, function(neighbors) {
+  # Get labels for the nearest neighbors
+  neighbor_labels &lt;- labels_10k[neighbors + 1]  # Add 1 for R&#39;s 1-based index
+  
+  # Return the most common label (majority vote)
+  most_common_label &lt;- names(sort(table(neighbor_labels), decreasing = TRUE))[1]
+  return(most_common_label)
+})
+
+# Now, transfer_labels contains the predicted labels for the 3k PBMC dataset
+head(transfer_labels)</code></pre>
+<pre><code>#&gt; [1] &quot;CD8 Naive&quot;         &quot;B cell progenitor&quot; &quot;CD4 Memory&quot;       
+#&gt; [4] &quot;CD16+ Monocytes&quot;   &quot;NK cell&quot;           &quot;CD4 Memory&quot;</code></pre>
+<pre class="r"><code>pbmc3k$predicted&lt;- transfer_labels
+
+DimPlot(pbmc3k, reduction = &quot;umap&quot;, group.by = &quot;predicted&quot;, label = TRUE, repel=TRUE) +
+        NoLegend()</code></pre>
+<p><img src="figure/how-seurat-pca-label-transfer.Rmd/unnamed-chunk-15-1.png" width="672" style="display: block; margin: auto;" /></p>
+</div>
+<div id="compare-with-seurats-wrapper" class="section level3">
+<h3>compare with Seurat’s wrapper</h3>
+<pre class="r"><code># Step 1: Find transfer anchors
+anchors &lt;- FindTransferAnchors(
+  reference = pbmc10k,     # The reference dataset
+  query = pbmc3k,          # The query dataset
+  dims = 1:100,            # The dimensions to use for anchor finding
+  reduction = &quot;pcaproject&quot; # this is the default
+)
+
+# Step 2: Transfer labels
+predictions &lt;- TransferData(
+  anchors = anchors,           # The anchors identified in the previous step
+  refdata = pbmc10k$celltype, # Assuming &#39;label&#39; is the metadata containing the true labels in seurat_10k
+  dims = 1:30                  # Dimensions to use for transferring
+)
+
+# Step 3: Add predictions to the query dataset
+pbmc3k &lt;- AddMetaData(pbmc3k, metadata = predictions)
+
+# predicted.id is from Seurat&#39;s wrapper function, predicted is from our naive implementation
+table(pbmc3k$predicted, pbmc3k$predicted.id)</code></pre>
+<pre><code>#&gt;                         
+#&gt;                          B cell progenitor CD14+ Monocytes CD16+ Monocytes
+#&gt;   B cell progenitor                     85               1               0
+#&gt;   CD14+ Monocytes                        0             266               0
+#&gt;   CD16+ Monocytes                        0              77             135
+#&gt;   CD4 Memory                             0               4               4
+#&gt;   CD4 Naive                              0             129               8
+#&gt;   CD8 effector                           0               1               0
+#&gt;   CD8 Naive                              0               2               2
+#&gt;   Dendritic cell                         0              10               0
+#&gt;   Double negative T cell                 0               0               0
+#&gt;   NK cell                                0               0               0
+#&gt;   pDC                                    0               0               0
+#&gt;   Platelets                              0               1               0
+#&gt;   pre-B cell                             9               2               0
+#&gt;                         
+#&gt;                          CD4 Memory CD4 Naive CD8 effector CD8 Naive
+#&gt;   B cell progenitor               0         0            0         0
+#&gt;   CD14+ Monocytes                 0         0            0         0
+#&gt;   CD16+ Monocytes                 0         0            0         0
+#&gt;   CD4 Memory                    418         6           26         0
+#&gt;   CD4 Naive                     119       524           13        19
+#&gt;   CD8 effector                    1         0          124         0
+#&gt;   CD8 Naive                      22         3           10       119
+#&gt;   Dendritic cell                  0         0            0         0
+#&gt;   Double negative T cell          0         0            0         0
+#&gt;   NK cell                         0         0            4         0
+#&gt;   pDC                             0         0            0         0
+#&gt;   Platelets                       0         0            0         0
+#&gt;   pre-B cell                      0         0            1         0
+#&gt;                         
+#&gt;                          Dendritic cell Double negative T cell NK cell pDC
+#&gt;   B cell progenitor                   3                      0       2   0
+#&gt;   CD14+ Monocytes                     0                      0       0   0
+#&gt;   CD16+ Monocytes                     0                      0       0   0
+#&gt;   CD4 Memory                          2                     27       2   0
+#&gt;   CD4 Naive                           1                      9       0   0
+#&gt;   CD8 effector                        0                      1      10   0
+#&gt;   CD8 Naive                           0                      2       0   0
+#&gt;   Dendritic cell                     24                      0       0   0
+#&gt;   Double negative T cell              0                     62       0   0
+#&gt;   NK cell                             0                      0     140   0
+#&gt;   pDC                                 1                      0       0   4
+#&gt;   Platelets                           0                      0       0   0
+#&gt;   pre-B cell                          1                      0       0   0
+#&gt;                         
+#&gt;                          Platelets pre-B cell
+#&gt;   B cell progenitor              0          3
+#&gt;   CD14+ Monocytes                0          0
+#&gt;   CD16+ Monocytes                0          0
+#&gt;   CD4 Memory                     1          0
+#&gt;   CD4 Naive                      3          8
+#&gt;   CD8 effector                   0          0
+#&gt;   CD8 Naive                      1          0
+#&gt;   Dendritic cell                 0          0
+#&gt;   Double negative T cell         0          0
+#&gt;   NK cell                        0          0
+#&gt;   pDC                            0          0
+#&gt;   Platelets                      8          0
+#&gt;   pre-B cell                     0        240</code></pre>
+<p>visualize in a heatmap</p>
+<pre class="r"><code>library(ComplexHeatmap)
+table(pbmc3k$predicted, pbmc3k$predicted.id) %&gt;%
+        as.matrix() %&gt;%
+        scale() %&gt;%
+        Heatmap(cluster_rows = FALSE, cluster_columns= FALSE, name= &quot;scaled\ncell number&quot;)</code></pre>
+<p><img src="figure/how-seurat-pca-label-transfer.Rmd/unnamed-chunk-17-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>Our native implementation of the k nearest neighbor label
+transferring is working decently well:)</p>
+</div>
+<div id="mutual-nearest-neighbors-mnn" class="section level2">
+<h2>Mutual nearest neighbors (MNN)</h2>
+<p>In Seurat, the mutual nearest neighbors (MNN) method is a key part of
+anchor identification during label transfer. Here’s a breakdown of what
+MNN does, how it differs from the PCA projection with k-nearest
+neighbors (kNN), and how labels are transferred for cells that are not
+mutual nearest neighbors.</p>
+<ul>
+<li>What is Mutual Nearest Neighbors (MNN) in Seurat?</li>
+</ul>
+<p>Mutual nearest neighbors (MNN) is used to match cells from two
+datasets (query and reference) based on their proximity in the shared
+feature space (e.g., PCA space). In this context:</p>
+<ul>
+<li><p>Mutual Nearest Neighbors: For a cell in dataset A, find its
+nearest neighbors in dataset B, and for a cell in dataset B, find its
+nearest neighbors in dataset A. If two cells are nearest neighbors of
+each other, they are considered mutual nearest neighbors
+(MNNs).</p></li>
+<li><p>Anchor Identification: MNNs serve as anchors or points of
+correspondence between the two datasets. These anchors represent pairs
+of cells from the two datasets that have similar profiles, and they help
+align the datasets for further downstream tasks such as label
+transfer.</p></li>
+<li><p>How is MNN Different from Your PCA Projection with kNN?</p></li>
+<li><p>Mutual Nearest Neighbors (MNN):</p></li>
+</ul>
+<p>MNN requires that the nearest neighbor relationship is mutual: a cell
+in the query dataset must be a nearest neighbor of a cell in the
+reference dataset and vice versa. MNN is designed to be more robust when
+integrating datasets, as it ensures bidirectional similarity between
+cells in the query and reference datasets. It captures correspondence
+between cells that truly resemble each other in both datasets, which is
+particularly important when datasets have batch effects or other
+technical differences.</p>
+<ul>
+<li>k-Nearest Neighbors (kNN) in PCA Projection:</li>
+</ul>
+<p>In PCA projection with k-nearest neighbors, you project the query
+dataset into the reference dataset’s PCA space and then find the nearest
+neighbors in that space. The nearest neighbor relationship is one-sided:
+for each cell in the query dataset, you only find its nearest neighbors
+in the reference dataset.</p>
+<p>This approach does not check if the reference dataset’s cells also
+treat the query dataset’s cells as nearest neighbors, which can
+introduce errors if the datasets are not perfectly aligned or suffer
+from batch effects.</p>
+<p>Now, let’s find the nearest neighbors for each dataset
+separately:</p>
+<pre class="r"><code>library(RcppAnnoy)
+
+# Number of nearest neighbors to find
+n_neighbors &lt;- 30
+
+# Build an annoy index for the 10k dataset
+#annoy_index_10k &lt;- new(AnnoyEuclidean, ncol(cell_embeddings_10k))
+annoy_index_10k &lt;- new(AnnoyAngular, ncol(cell_embeddings_10k)) #use cosine distance instead
+
+# Add each cell&#39;s PCA embeddings to the index
+for (i in 1:nrow(cell_embeddings_10k)) {
+  annoy_index_10k$addItem(i - 1, cell_embeddings_10k[i, ])  # 0-based index for Annoy
+}
+
+# Build the index for fast nearest neighbor search
+annoy_index_10k$build(10)</code></pre>
+<p>Find nearest neighbors in 10k for each cell in 3k</p>
+<pre class="r"><code>nn_10k_for_3k &lt;- t(sapply(1:nrow(cell_embeddings_3k), function(i) {
+  annoy_index_10k$getNNsByVector(cell_embeddings_3k[i, ], n_neighbors)
+}))
+
+# Adjust for R&#39;s 1-based indexing
+nn_10k_for_3k &lt;- nn_10k_for_3k + 1  # convert to 1-based indexing for R
+
+head(nn_10k_for_3k)</code></pre>
+<pre><code>#&gt;      [,1] [,2] [,3] [,4] [,5] [,6] [,7] [,8] [,9] [,10] [,11] [,12] [,13] [,14]
+#&gt; [1,] 8625 4994  276 8359 6193 3537 2829  458 7174   556  9059  5384  6644  6776
+#&gt; [2,] 8529  101 8577 6438 1352 4502 1823 4128 1408  3174  5458  5818  4932    47
+#&gt; [3,] 7951  755 5058  697 4788 3588 1579 3016   59  8250  2686  1372  8247  5741
+#&gt; [4,]  109 8618 4996 9207 8432 6036 6990  427 7893  3621  1216  6496  3898  6037
+#&gt; [5,]  453 8115 3869 5415 7885 1580 7634 4573 5018  3613  9160  8212  5713  1923
+#&gt; [6,] 4220 1816 6418 7896 8123 2081 6142 1257 3355  6038  6524  7300  7951  8520
+#&gt;      [,15] [,16] [,17] [,18] [,19] [,20] [,21] [,22] [,23] [,24] [,25] [,26]
+#&gt; [1,]  3559  8708  3530  1276  5869  4074  3812  1394  3856  5617  2382  7942
+#&gt; [2,]  6366  7080  7458  7124  8022  2108  2589  6517  7168  8057  5377  6103
+#&gt; [3,]   888  5789  5602  7589  1479  8935  6249  2031  7883  1240  2406  4231
+#&gt; [4,]  9133  3517  8078  9193  3508  5606  8444  6135  4659  7513  6105  1226
+#&gt; [5,]  2254  2092  1262  7798  4483  8451  7987  8538  8813  4114  1025  6571
+#&gt; [6,]  4809   950  8616  9423   697  5939  8861  8240  1320  2801  5871  4783
+#&gt;      [,27] [,28] [,29] [,30]
+#&gt; [1,]  3689  2264  9399  7011
+#&gt; [2,]  7312  8775   974  1744
+#&gt; [3,]  8240  1485  4817  4561
+#&gt; [4,]  1242  6222  3314  4066
+#&gt; [5,]  8184  9222  3823  5013
+#&gt; [6,]  3567  6277  3167  1579</code></pre>
+<p>Similarly, build an index for the 3k dataset</p>
+<pre class="r"><code># annoy_index_3k &lt;- new(AnnoyEuclidean, ncol(cell_embeddings_3k))
+annoy_index_3k &lt;- new(AnnoyAngular, ncol(cell_embeddings_3k)) 
+
+for (i in 1:nrow(cell_embeddings_3k)) {
+  annoy_index_3k$addItem(i - 1, cell_embeddings_3k[i, ])  # 0-based index for Annoy
+}
+
+annoy_index_3k$build(10)</code></pre>
+<p>Find nearest neighbors in 3k for each cell in 10k</p>
+<pre class="r"><code>nn_3k_for_10k &lt;- t(sapply(1:nrow(cell_embeddings_10k), function(i) {
+  annoy_index_3k$getNNsByVector(cell_embeddings_10k[i, ], n_neighbors)
+}))
+
+# Adjust for R&#39;s 1-based indexing
+nn_3k_for_10k &lt;- nn_3k_for_10k + 1  # convert to 1-based indexing for R</code></pre>
+<p>A key thing here is that <code>RcppAnnoy</code> in <code>C</code> is
+0 based, and R is 1 based. We need to add 1 to the index. Otherwise, I
+will get non-sense results!</p>
+<div id="identify-mutual-nearest-neighbors-mnn" class="section level3">
+<h3>Identify Mutual Nearest Neighbors (MNN)</h3>
+<p>Now identify Mutual Nearest Neighbors and include the transfer
+score:</p>
+<pre class="r"><code>labels_10k &lt;- as.character(labels_10k)
+
+# Create empty vectors to store the scores and labels
+pbmc3k_transferred_labels &lt;- rep(NA, nrow(cell_embeddings_3k))
+pbmc3k_transfer_scores &lt;- rep(0, nrow(cell_embeddings_3k))
+
+# Loop through each cell in the 3k dataset to find the mutual nearest neighbors
+for (i in 1:nrow(cell_embeddings_3k)) {
+  # Get nearest neighbors of the i-th 3k cell in 10k
+  nn_in_10k &lt;- nn_10k_for_3k[i, ]
+  
+  # Initialize count for mutual nearest neighbors
+  mutual_count &lt;- 0
+  
+  # Check mutual nearest neighbors
+  for (nn in nn_in_10k) {
+    # Check if i-th 3k cell is a nearest neighbor for the nn-th 10k cell
+    if (i %in% nn_3k_for_10k[nn, ]) {  # Correct 1-based indexing
+      mutual_count &lt;- mutual_count + 1
+      
+      # Transfer the label from the 10k cell to the 3k cell
+      pbmc3k_transferred_labels[i] &lt;- labels_10k[nn]
+    }
+  }
+  
+  # Calculate the transfer score (mutual neighbor count / total neighbors)
+  pbmc3k_transfer_scores[i] &lt;- mutual_count / n_neighbors
+}</code></pre>
+</div>
+<div id="handling-cells-without-mnn" class="section level3">
+<h3>Handling Cells Without MNN:</h3>
+<ul>
+<li><p>Label Transfer for Non-Mutual Nearest Neighbors Seurat handles
+cells that are not mutual nearest neighbors (i.e., cells that do not
+have a direct anchor) in the following ways:</p></li>
+<li><p>Weighting Anchors:</p></li>
+</ul>
+<p>Seurat uses a weighted transfer system. Even if a query cell does not
+have a direct MNN, the label transfer process still considers the
+relationship between that query cell and the nearest anchors (the mutual
+nearest neighbors).</p>
+<p>For cells that are not mutual nearest neighbors, their labels are
+predicted based on the similarity (distance) to the identified anchors.
+The influence of each anchor is weighted according to its distance from
+the query cell. Extrapolation for Non-MNN Cells:</p>
+<p>For cells in the query dataset that don’t have mutual nearest
+neighbors, the labels can still be inferred based on their position
+relative to the MNN cells.</p>
+<p>Seurat’s <code>TransferData</code> function takes into account the
+proximity of these non-MNN cells to the anchor cells and extrapolates
+the labels based on the information from the anchor set. The cells
+closest to the MNN cells will receive a higher weight when transferring
+labels. Prediction Confidence:</p>
+<p>Seurat also provides prediction scores that indicate the confidence
+of the label transfer for each cell. Cells that do not have strong
+mutual nearest neighbors may receive lower confidence scores.</p>
+<p>For cells without MNN, we can still assign labels based on the
+nearest neighbor from pbmc10k, but their transfer score will be lower
+(or zero). Our implementation just use the nearest neighbor in the 10k
+even they are not mutually nearest to simplify the demonstration.</p>
+<pre class="r"><code># Fill in missing labels for cells without MNN based on nearest neighbor in 10k
+for (i in 1:length(pbmc3k_transferred_labels)) {
+  if (is.na(pbmc3k_transferred_labels[i])) {
+    # Assign the label of the nearest 10k cell
+    nearest_10k_cell &lt;- nn_10k_for_3k[i, 1]  # First nearest neighbor
+    pbmc3k_transferred_labels[i] &lt;- labels_10k[nearest_10k_cell]
+    
+    # Assign a lower score for non-mutual neighbors
+    pbmc3k_transfer_scores[i] &lt;- 0.01  # assign a small score like 0.01 for non-mutual
+  }
+}
+
+head(pbmc3k_transferred_labels)</code></pre>
+<pre><code>#&gt; [1] &quot;CD4 Memory&quot;        &quot;B cell progenitor&quot; &quot;CD4 Memory&quot;       
+#&gt; [4] &quot;CD16+ Monocytes&quot;   &quot;NK cell&quot;           &quot;CD4 Memory&quot;</code></pre>
+<pre class="r"><code>head(pbmc3k_transfer_scores)</code></pre>
+<pre><code>#&gt; [1] 0.1000000 0.3666667 0.4000000 0.0100000 0.1000000 0.4333333</code></pre>
+<p>Let’s see how it looks like</p>
+<pre class="r"><code># Add predictions to the query dataset
+pbmc3k$pbmc3k_transferred_labels&lt;- pbmc3k_transferred_labels
+
+# predicted.id is from Seurat&#39;s wrapper function, pbmc3k_transferred_labels is from our naive MNN implementation
+
+table(pbmc3k$pbmc3k_transferred_labels, pbmc3k$predicted.id)</code></pre>
+<pre><code>#&gt;                         
+#&gt;                          B cell progenitor CD14+ Monocytes CD16+ Monocytes
+#&gt;   B cell progenitor                     85               1               0
+#&gt;   CD14+ Monocytes                        0             296               0
+#&gt;   CD16+ Monocytes                        0              54             135
+#&gt;   CD4 Memory                             0              27              10
+#&gt;   CD4 Naive                              0              98               3
+#&gt;   CD8 effector                           0               1               0
+#&gt;   CD8 Naive                              0               4               1
+#&gt;   Dendritic cell                         0               5               0
+#&gt;   Double negative T cell                 0               0               0
+#&gt;   NK cell                                1               0               0
+#&gt;   pDC                                    0               0               0
+#&gt;   Platelets                              0               3               0
+#&gt;   pre-B cell                             8               4               0
+#&gt;                         
+#&gt;                          CD4 Memory CD4 Naive CD8 effector CD8 Naive
+#&gt;   B cell progenitor               0         1            0         0
+#&gt;   CD14+ Monocytes                 0         0            0         0
+#&gt;   CD16+ Monocytes                 0         0            0         0
+#&gt;   CD4 Memory                    508        93           28         8
+#&gt;   CD4 Naive                      41       431            3        12
+#&gt;   CD8 effector                    2         0          141         0
+#&gt;   CD8 Naive                       8         8            2       118
+#&gt;   Dendritic cell                  0         0            0         0
+#&gt;   Double negative T cell          0         0            2         0
+#&gt;   NK cell                         0         0            1         0
+#&gt;   pDC                             0         0            0         0
+#&gt;   Platelets                       0         0            0         0
+#&gt;   pre-B cell                      1         0            1         0
+#&gt;                         
+#&gt;                          Dendritic cell Double negative T cell NK cell pDC
+#&gt;   B cell progenitor                   1                      0       2   0
+#&gt;   CD14+ Monocytes                     0                      0       0   0
+#&gt;   CD16+ Monocytes                     0                      0       0   0
+#&gt;   CD4 Memory                          2                     32       3   0
+#&gt;   CD4 Naive                           1                      3       0   0
+#&gt;   CD8 effector                        0                      9      28   0
+#&gt;   CD8 Naive                           0                      2       0   0
+#&gt;   Dendritic cell                     24                      0       0   0
+#&gt;   Double negative T cell              0                     55       0   0
+#&gt;   NK cell                             0                      0     121   0
+#&gt;   pDC                                 2                      0       0   4
+#&gt;   Platelets                           0                      0       0   0
+#&gt;   pre-B cell                          2                      0       0   0
+#&gt;                         
+#&gt;                          Platelets pre-B cell
+#&gt;   B cell progenitor              0         15
+#&gt;   CD14+ Monocytes                0          0
+#&gt;   CD16+ Monocytes                0          0
+#&gt;   CD4 Memory                     4          0
+#&gt;   CD4 Naive                      0          1
+#&gt;   CD8 effector                   0          0
+#&gt;   CD8 Naive                      0          0
+#&gt;   Dendritic cell                 0          0
+#&gt;   Double negative T cell         0          0
+#&gt;   NK cell                        0          0
+#&gt;   pDC                            1          0
+#&gt;   Platelets                      8          0
+#&gt;   pre-B cell                     0        235</code></pre>
+<p>Visualize in a heatmap</p>
+<pre class="r"><code>table(pbmc3k$pbmc3k_transferred_labels, pbmc3k$predicted.id) %&gt;%
+        as.matrix() %&gt;%
+        scale() %&gt;%
+        Heatmap(cluster_rows = FALSE, cluster_columns= FALSE, name= &quot;scaled\ncell number&quot;)</code></pre>
+<p><img src="figure/how-seurat-pca-label-transfer.Rmd/unnamed-chunk-25-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>Our native implementation of MNN is not exactly the same as Seurat.
+Seurat’s MNN implementation includes additional optimization like PC
+scaling and anchor filtering, but it is very good to see we get
+reasonable results!</p>
+<p>In <code>Seurat</code>(Tim Stuart et al 2019), the other way is to
+use Canonical Correlation Analysis (CCA) and we will leave it to a
+future post!</p>
+<p><img src="/imgs/CCA.png" /></p>
+</div>
+<div id="final-note" class="section level3">
+<h3>Final Note</h3>
+<p>I asked ChatGPT for help a lot, and it gave me a good starting point
+for the code. I had to adapt the code when I had the errors. Anyway, it
+shows how powerful <code>chatGPT</code> is and you can use it as you
+study companion. Embrace AI or it will replace people who do not use it
+:)</p>
+<p>Happy Learning!</p>
+<p>Tommy</p>
+<br>
+<p>
+<button type="button" class="btn btn-default btn-workflowr btn-workflowr-sessioninfo" data-toggle="collapse" data-target="#workflowr-sessioninfo" style="display: block;">
+<span class="glyphicon glyphicon-wrench" aria-hidden="true"></span>
+Session information
+</button>
+</p>
+<div id="workflowr-sessioninfo" class="collapse">
+<pre class="r"><code>sessionInfo()</code></pre>
+<pre><code>#&gt; R version 4.4.1 (2024-06-14)
+#&gt; Platform: aarch64-apple-darwin20
+#&gt; Running under: macOS Sonoma 14.1
+#&gt; 
+#&gt; Matrix products: default
+#&gt; BLAS:   /Library/Frameworks/R.framework/Versions/4.4-arm64/Resources/lib/libRblas.0.dylib 
+#&gt; LAPACK: /Library/Frameworks/R.framework/Versions/4.4-arm64/Resources/lib/libRlapack.dylib;  LAPACK version 3.12.0
+#&gt; 
+#&gt; locale:
+#&gt; [1] en_US.UTF-8/en_US.UTF-8/en_US.UTF-8/C/en_US.UTF-8/en_US.UTF-8
+#&gt; 
+#&gt; time zone: America/New_York
+#&gt; tzcode source: internal
+#&gt; 
+#&gt; attached base packages:
+#&gt; [1] grid      stats     graphics  grDevices utils     datasets  methods  
+#&gt; [8] base     
+#&gt; 
+#&gt; other attached packages:
+#&gt;  [1] ComplexHeatmap_2.20.0   ggplot2_3.5.1           pbmc3k.SeuratData_3.1.4
+#&gt;  [4] SeuratData_0.2.2.9001   dplyr_1.1.4             RcppAnnoy_0.0.22       
+#&gt;  [7] irlba_2.3.5.1           Matrix_1.7-0            Seurat_5.1.0           
+#&gt; [10] SeuratObject_5.0.2      sp_2.1-4                workflowr_1.7.1        
+#&gt; 
+#&gt; loaded via a namespace (and not attached):
+#&gt;   [1] RColorBrewer_1.1-3     shape_1.4.6.1          rstudioapi_0.16.0     
+#&gt;   [4] jsonlite_1.8.8         magrittr_2.0.3         magick_2.8.5          
+#&gt;   [7] spatstat.utils_3.1-0   farver_2.1.2           rmarkdown_2.27        
+#&gt;  [10] GlobalOptions_0.1.2    fs_1.6.4               vctrs_0.6.5           
+#&gt;  [13] ROCR_1.0-11            Cairo_1.6-2            spatstat.explore_3.3-2
+#&gt;  [16] htmltools_0.5.8.1      sass_0.4.9             sctransform_0.4.1     
+#&gt;  [19] parallelly_1.38.0      KernSmooth_2.23-24     bslib_0.8.0           
+#&gt;  [22] htmlwidgets_1.6.4      ica_1.0-3              plyr_1.8.9            
+#&gt;  [25] plotly_4.10.4          zoo_1.8-12             cachem_1.1.0          
+#&gt;  [28] whisker_0.4.1          igraph_2.0.3           iterators_1.0.14      
+#&gt;  [31] mime_0.12              lifecycle_1.0.4        pkgconfig_2.0.3       
+#&gt;  [34] R6_2.5.1               fastmap_1.2.0          clue_0.3-65           
+#&gt;  [37] fitdistrplus_1.2-1     future_1.34.0          shiny_1.9.0           
+#&gt;  [40] digest_0.6.36          colorspace_2.1-1       S4Vectors_0.42.1      
+#&gt;  [43] patchwork_1.2.0        ps_1.7.7               rprojroot_2.0.4       
+#&gt;  [46] tensor_1.5             RSpectra_0.16-2        labeling_0.4.3        
+#&gt;  [49] progressr_0.14.0       fansi_1.0.6            spatstat.sparse_3.1-0 
+#&gt;  [52] httr_1.4.7             polyclip_1.10-7        abind_1.4-5           
+#&gt;  [55] compiler_4.4.1         doParallel_1.0.17      withr_3.0.0           
+#&gt;  [58] fastDummies_1.7.4      highr_0.11             MASS_7.3-60.2         
+#&gt;  [61] rappdirs_0.3.3         rjson_0.2.22           tools_4.4.1           
+#&gt;  [64] lmtest_0.9-40          httpuv_1.6.15          future.apply_1.11.2   
+#&gt;  [67] goftest_1.2-3          glue_1.7.0             callr_3.7.6           
+#&gt;  [70] nlme_3.1-164           promises_1.3.0         Rtsne_0.17            
+#&gt;  [73] getPass_0.2-4          cluster_2.1.6          reshape2_1.4.4        
+#&gt;  [76] generics_0.1.3         gtable_0.3.5           spatstat.data_3.1-2   
+#&gt;  [79] tidyr_1.3.1            data.table_1.15.4      utf8_1.2.4            
+#&gt;  [82] BiocGenerics_0.50.0    spatstat.geom_3.3-2    foreach_1.5.2         
+#&gt;  [85] ggrepel_0.9.5          RANN_2.6.1             pillar_1.9.0          
+#&gt;  [88] stringr_1.5.1          spam_2.10-0            RcppHNSW_0.6.0        
+#&gt;  [91] later_1.3.2            circlize_0.4.16        splines_4.4.1         
+#&gt;  [94] lattice_0.22-6         survival_3.6-4         deldir_2.0-4          
+#&gt;  [97] tidyselect_1.2.1       miniUI_0.1.1.1         pbapply_1.7-2         
+#&gt; [100] knitr_1.48             git2r_0.35.0           gridExtra_2.3         
+#&gt; [103] IRanges_2.38.1         scattermore_1.2        stats4_4.4.1          
+#&gt; [106] xfun_0.46              matrixStats_1.3.0      stringi_1.8.4         
+#&gt; [109] lazyeval_0.2.2         yaml_2.3.10            evaluate_0.24.0       
+#&gt; [112] codetools_0.2-20       tibble_3.2.1           cli_3.6.3             
+#&gt; [115] uwot_0.2.2             xtable_1.8-4           reticulate_1.38.0     
+#&gt; [118] munsell_0.5.1          processx_3.8.4         jquerylib_0.1.4       
+#&gt; [121] Rcpp_1.0.13            globals_0.16.3         spatstat.random_3.3-1 
+#&gt; [124] png_0.1-8              spatstat.univar_3.0-0  parallel_4.4.1        
+#&gt; [127] dotCall64_1.1-1        listenv_0.9.1          viridisLite_0.4.2     
+#&gt; [130] scales_1.3.0           ggridges_0.5.6         crayon_1.5.3          
+#&gt; [133] leiden_0.4.3.1         purrr_1.0.2            GetoptLong_1.0.5      
+#&gt; [136] rlang_1.1.4            cowplot_1.1.3</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+
+<!-- Adjust MathJax settings so that all math formulae are shown using
+TeX fonts only; see
+https://docs.mathjax.org/en/latest/web/configuration.html. This will make
+the presentation more consistent at the cost of the webpage sometimes
+taking slightly longer to load. Note that this only works because the
+footer is added to webpages before the MathJax javascript. -->
+<script type="text/x-mathjax-config">
+  MathJax.Hub.Config({
+    "HTML-CSS": { availableFonts: ["TeX"] }
+  });
+</script>
+
+
+
+
+</div>
+</div>
+
+</div>
+
+<script>
+
+// add bootstrap table styles to pandoc tables
+function bootstrapStylePandocTables() {
+  $('tr.odd').parent('tbody').parent('table').addClass('table table-condensed');
+}
+$(document).ready(function () {
+  bootstrapStylePandocTables();
+});
+
+
+</script>
+
+<!-- tabsets -->
+
+<script>
+$(document).ready(function () {
+  window.buildTabsets("TOC");
+});
+
+$(document).ready(function () {
+  $('.tabset-dropdown > .nav-tabs > li').click(function () {
+    $(this).parent().toggleClass('nav-tabs-open');
+  });
+});
+</script>
+
+<!-- code folding -->
+
+<script>
+$(document).ready(function ()  {
+
+    // temporarily add toc-ignore selector to headers for the consistency with Pandoc
+    $('.unlisted.unnumbered').addClass('toc-ignore')
+
+    // move toc-ignore selectors from section div to header
+    $('div.section.toc-ignore')
+        .removeClass('toc-ignore')
+        .children('h1,h2,h3,h4,h5').addClass('toc-ignore');
+
+    // establish options
+    var options = {
+      selectors: "h1,h2,h3",
+      theme: "bootstrap3",
+      context: '.toc-content',
+      hashGenerator: function (text) {
+        return text.replace(/[.\\/?&!#<>]/g, '').replace(/\s/g, '_');
+      },
+      ignoreSelector: ".toc-ignore",
+      scrollTo: 0
+    };
+    options.showAndHide = true;
+    options.smoothScroll = true;
+
+    // tocify
+    var toc = $("#TOC").tocify(options).data("toc-tocify");
+});
+</script>
+
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+  (function () {
+    var script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src  = "https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML";
+    document.getElementsByTagName("head")[0].appendChild(script);
+  })();
+</script>
+
+</body>
+</html>
