@@ -23,6 +23,10 @@ knitr::opts_chunk$set(
 Following my last blog post on [PCA projection and cell label transfer](https://divingintogeneticsandgenomics.com/post/pca-projection/), we are 
 going to talk about `CCA`.
 
+In `Seurat`(Tim Stuart et al 2019), the other way is to use Canonical Correlation Analysis (CCA) for data integration and label transferand we will explore it today!
+
+![](imgs/CCA.png)
+
 In single-cell RNA-seq data integration using `Canonical Correlation Analysis (CCA)`, we typically align two matrices representing different datasets, where both datasets have the same set of genes but different numbers of cells. CCA is used to identify correlated structures across the two datasets and align them in a common space.
 
 

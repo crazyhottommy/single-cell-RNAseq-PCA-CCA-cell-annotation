@@ -541,7 +541,7 @@ Our native implementation of MNN is not exactly the same as Seurat. Seurat’s M
 
 In `Seurat`(Tim Stuart et al 2019), the other way is to use Canonical Correlation Analysis (CCA) and we will leave it to a future post!
 
-![](/imgs/CCA.png)
+![](imgs/CCA.png)
 
 ### Final Note
 

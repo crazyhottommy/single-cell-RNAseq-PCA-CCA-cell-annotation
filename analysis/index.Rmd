@@ -8,9 +8,23 @@ editor_options:
   chunk_output_type: console
 ---
 
-Welcome to my research website.
+Welcome to the workshop.
+
+### Datasets
+
+* download the 10k PBMC dataset here 
+
+```bash
+curl -Lo pbmc_10k_v3.rds https://www.dropbox.com/s/3f3p5nxrn5b3y4y/pbmc_10k_v3.rds?dl=1 
+```
+
+* The 3k PBMC dataset will be downloaded from `SeuratData` R package.
+
+We will annotate the 3k PBMC dataset using the 10k PBMC dataset.
 
 ### Step by step tutorial 
 
 1. [How PCA works for cell annotation](how-seurat-pca-label-transfer.html).
 2. [How CCA works for cell annotation](how-seurat-cca-label-transfer.html)
+
+![](imgs/CCA.png)

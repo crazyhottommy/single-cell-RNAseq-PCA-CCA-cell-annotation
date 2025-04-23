@@ -302,7 +302,7 @@ aria-hidden="true"></span> </a>
 <div class="tab-content">
 <div id="summary" class="tab-pane fade in active">
 <p>
-<strong>Last updated:</strong> 2025-04-21
+<strong>Last updated:</strong> 2025-04-23
 </p>
 <p>
 <strong>Checks:</strong> <span
@@ -353,15 +353,15 @@ HTML.</p>
 <div class="panel panel-default">
 <div class="panel-heading">
 <p class="panel-title">
-<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongRepositoryversionstrongahrefhttpsgithubcomcrazyhottommysinglecellRNAseqPCACCAcellannotationtree2facd4835b9b926dcdb1089c188272ffb05d49fatargetblank2facd48a">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongRepositoryversionstrongahrefhttpsgithubcomcrazyhottommysinglecellRNAseqPCACCAcellannotationtree7265c063b7073ee882b235b030ef1b24bbc732fbtargetblank7265c06a">
 <span class="glyphicon glyphicon-ok text-success"
 aria-hidden="true"></span> <strong>Repository version:</strong>
-<a href="https://github.com/crazyhottommy/single-cell-RNAseq-PCA-CCA-cell-annotation/tree/2facd4835b9b926dcdb1089c188272ffb05d49fa" target="_blank">2facd48</a>
+<a href="https://github.com/crazyhottommy/single-cell-RNAseq-PCA-CCA-cell-annotation/tree/7265c063b7073ee882b235b030ef1b24bbc732fb" target="_blank">7265c06</a>
 </a>
 </p>
 </div>
 <div
-id="strongRepositoryversionstrongahrefhttpsgithubcomcrazyhottommysinglecellRNAseqPCACCAcellannotationtree2facd4835b9b926dcdb1089c188272ffb05d49fatargetblank2facd48a"
+id="strongRepositoryversionstrongahrefhttpsgithubcomcrazyhottommysinglecellRNAseqPCACCAcellannotationtree7265c063b7073ee882b235b030ef1b24bbc732fbtargetblank7265c06a"
 class="panel-collapse collapse">
 <div class="panel-body">
 <p>
@@ -371,7 +371,7 @@ reproducibility.
 </p>
 <p>
 The results in this page were generated with repository version
-<a href="https://github.com/crazyhottommy/single-cell-RNAseq-PCA-CCA-cell-annotation/tree/2facd4835b9b926dcdb1089c188272ffb05d49fa" target="_blank">2facd48</a>.
+<a href="https://github.com/crazyhottommy/single-cell-RNAseq-PCA-CCA-cell-annotation/tree/7265c063b7073ee882b235b030ef1b24bbc732fb" target="_blank">7265c06</a>.
 See the <em>Past versions</em> tab to see a history of the changes made
 to the R Markdown and HTML files.
 </p>
@@ -389,13 +389,10 @@ Ignored files:
     Ignored:    .Rhistory
     Ignored:    .Rproj.user/
 
-Untracked files:
-    Untracked:  analysis/how-seurat-cca-label-transfer.Rmd
-    Untracked:  analysis/how-seurat-pca-label-transfer.Rmd
-
 Unstaged changes:
+    Modified:   analysis/how-seurat-cca-label-transfer.Rmd
+    Modified:   analysis/how-seurat-pca-label-transfer.Rmd
     Modified:   analysis/index.Rmd
-    Modified:   single-cell-RNAseq-PCA-CCA-cell-annotation.Rproj
 
 </code></pre>
 <p>
@@ -444,6 +441,40 @@ Message
 Rmd
 </td>
 <td>
+<a href="https://github.com/crazyhottommy/single-cell-RNAseq-PCA-CCA-cell-annotation/blob/7265c063b7073ee882b235b030ef1b24bbc732fb/analysis/index.Rmd" target="_blank">7265c06</a>
+</td>
+<td>
+crazyhottommy
+</td>
+<td>
+2025-04-22
+</td>
+<td>
+first commit
+</td>
+</tr>
+<tr>
+<td>
+html
+</td>
+<td>
+<a href="https://rawcdn.githack.com/crazyhottommy/single-cell-RNAseq-PCA-CCA-cell-annotation/7265c063b7073ee882b235b030ef1b24bbc732fb/docs/index.html" target="_blank">7265c06</a>
+</td>
+<td>
+crazyhottommy
+</td>
+<td>
+2025-04-22
+</td>
+<td>
+first commit
+</td>
+</tr>
+<tr>
+<td>
+Rmd
+</td>
+<td>
 <a href="https://github.com/crazyhottommy/single-cell-RNAseq-PCA-CCA-cell-annotation/blob/2facd4835b9b926dcdb1089c188272ffb05d49fa/analysis/index.Rmd" target="_blank">2facd48</a>
 </td>
 <td>
@@ -463,7 +494,19 @@ Start workflowr project.
 </div>
 </div>
 </div>
-<p>Welcome to my research website.</p>
+<p>Welcome to the workshop.</p>
+<div id="datasets" class="section level3">
+<h3>Datasets</h3>
+<ul>
+<li>download the 10k PBMC dataset here</li>
+</ul>
+<pre class="bash"><code>curl -Lo pbmc_10k_v3.rds https://www.dropbox.com/s/3f3p5nxrn5b3y4y/pbmc_10k_v3.rds?dl=1 </code></pre>
+<ul>
+<li>The 3k PBMC dataset will be downloaded from <code>SeuratData</code>
+R package.</li>
+</ul>
+<p>We will annotate the 3k PBMC dataset using the 10k PBMC dataset.</p>
+</div>
 <div id="step-by-step-tutorial" class="section level3">
 <h3>Step by step tutorial</h3>
 <ol style="list-style-type: decimal">
@@ -472,6 +515,7 @@ annotation</a>.</li>
 <li><a href="how-seurat-cca-label-transfer.html">How CCA works for cell
 annotation</a></li>
 </ol>
+<p><img src="imgs/CCA.png" /></p>
 </div>
 </div>
 </div>
